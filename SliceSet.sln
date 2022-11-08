@@ -4,6 +4,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SliceSet", "SliceSet\SliceS
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SliceSet.Scratchpad", "SliceSet.Scratchpad\SliceSet.Scratchpad.fsproj", "{09F70A77-A4AA-4789-A377-237A4D044C4A}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SliceSet.Benchmark", "SliceSet.Benchmark\SliceSet.Benchmark.fsproj", "{98B8EED1-70FC-4E27-B077-9CB8C5AC4B41}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -18,5 +20,9 @@ Global
 		{09F70A77-A4AA-4789-A377-237A4D044C4A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{09F70A77-A4AA-4789-A377-237A4D044C4A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{09F70A77-A4AA-4789-A377-237A4D044C4A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{98B8EED1-70FC-4E27-B077-9CB8C5AC4B41}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{98B8EED1-70FC-4E27-B077-9CB8C5AC4B41}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{98B8EED1-70FC-4E27-B077-9CB8C5AC4B41}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{98B8EED1-70FC-4E27-B077-9CB8C5AC4B41}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
