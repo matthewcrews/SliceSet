@@ -410,6 +410,23 @@ type SliceSet3D<'a, 'b, 'c when 'a : equality and 'b : equality and 'c : equalit
                 raise (KeyNotFoundException "Index does not contain the value")
             
     member _.Item
+        with get (aKey: 'a,  _: All, cKey: 'c) =
+            match aIndex.StartRange.TryGetValue aKey, cIndex.StartRange.TryGetValue cKey with
+            | (true, aStartRangeKey), (true, cStartRangeKey) ->
+                let indexRanges = block [|aIndex.Ranges; cIndex.Ranges|]
+                let nextRanges = block [|aIndex.NextRange; cIndex.NextRange|]
+                let startRanges = block [|aStartRangeKey; cStartRangeKey|]
+                let keyFilter : KeyFilter = {
+                    IndexRanges = indexRanges
+                    NextRanges = nextRanges
+                    StartRanges = startRanges
+                }
+                SliceSet (keyFilter, cIndex)
+                
+            | (_, _), (_, _) ->
+                raise (KeyNotFoundException "Index does not contain the value")
+            
+    member _.Item
         with get (aKey: 'a, _: All, _: All) =
             match aIndex.StartRange.TryGetValue aKey with
             | true, startRangeKey ->
@@ -439,6 +456,23 @@ type SliceSet3D<'a, 'b, 'c when 'a : equality and 'b : equality and 'c : equalit
                     StartRanges = startRanges
                 }
                 SliceSet2D (keyFilter, aIndex, cIndex)
+                
+            | false, _ ->
+                raise (KeyNotFoundException "Index does not contain the value")
+                
+    member _.Item
+        with get (_: All, _: All, cKey: 'c) =
+            match cIndex.StartRange.TryGetValue cKey with
+            | true, startRangeKey ->
+                let indexRanges = block [|cIndex.Ranges|]
+                let nextRanges = block [|cIndex.NextRange|]
+                let startRanges = block [|startRangeKey|]
+                let keyFilter : KeyFilter = {
+                    IndexRanges = indexRanges
+                    NextRanges = nextRanges
+                    StartRanges = startRanges
+                }
+                SliceSet2D (keyFilter, aIndex, bIndex)
                 
             | false, _ ->
                 raise (KeyNotFoundException "Index does not contain the value")
