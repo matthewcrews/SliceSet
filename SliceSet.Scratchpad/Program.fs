@@ -31,7 +31,10 @@ let t2 =
         3, 3, "dd"
     ]
 
-let x2 = t2[1, 2, All]
+let x2 = t2[All, 2, All]
+// let x3 = x2[2, All]
 
 for a in x2 do
     printfn $"{a}"
+    
+()
