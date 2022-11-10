@@ -99,6 +99,9 @@ let ``RangeIteration results match Naive`` () =
             let expected = Set (baselineSliceSet[product, supplier, All])
             let actual = Set (rangeIterationSliceSet[product, supplier, All].AsSeq())
             
+            // Make sure we actually got a result
+            Assert.Greater (expected.Count, 0)
+            // Test that the values are equivalent
             Assert.AreEqual (expected, actual)
             
         let productCustomerSearches = productCustomerSearchSets[sizeIdx]
@@ -107,6 +110,9 @@ let ``RangeIteration results match Naive`` () =
             let expected = Set (baselineSliceSet[product, All, customer])
             let actual = Set (rangeIterationSliceSet[product, All, customer].AsSeq())
             
+            // Make sure we actually got a result
+            Assert.Greater (expected.Count, 0)
+            // Test that the values are equivalent
             Assert.AreEqual (expected, actual)
             
         let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx]
@@ -115,4 +121,7 @@ let ``RangeIteration results match Naive`` () =
             let expected = Set (baselineSliceSet[All, supplier, customer])
             let actual = Set (rangeIterationSliceSet[All, supplier, customer].AsSeq())
             
+            // Make sure we actually got a result
+            Assert.Greater (expected.Count, 0)
+            // Test that the values are equivalent
             Assert.AreEqual (expected, actual)

@@ -314,7 +314,7 @@ type SliceSet3D<'a, 'b, 'c when 'a : equality and 'b : equality and 'c : equalit
                     NextRanges = nextRanges
                     StartRanges = startRanges
                 }
-                SliceSet (keyFilter, cIndex)
+                SliceSet (keyFilter, bIndex)
                 
             | (_, _), (_, _) ->
                 raise (KeyNotFoundException "Index does not contain the value")
@@ -331,7 +331,7 @@ type SliceSet3D<'a, 'b, 'c when 'a : equality and 'b : equality and 'c : equalit
                     NextRanges = nextRanges
                     StartRanges = startRanges
                 }
-                SliceSet (keyFilter, cIndex)
+                SliceSet (keyFilter, aIndex)
                 
             | (_, _), (_, _) ->
                 raise (KeyNotFoundException "Index does not contain the value")
