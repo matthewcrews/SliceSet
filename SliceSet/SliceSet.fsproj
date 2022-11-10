@@ -3,10 +3,15 @@
     <PropertyGroup>
         <TargetFramework>net6.0</TargetFramework>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <Platform>x64</Platform>
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="Library.fs"/>
+        <Compile Include="Collections.fs" />
+        <Compile Include="Domain.fs" />
+        <Compile Include="Version00.fs" />
+        <Compile Include="Version01.fs" />
+        <Compile Include="Version02.fs" />
     </ItemGroup>
 
 </Project>

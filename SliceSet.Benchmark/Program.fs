@@ -4,68 +4,115 @@ open BenchmarkDotNet.Diagnosers
 open BenchmarkDotNet.Attributes
 open BenchmarkDotNet.Running
 open SliceSet
+open SliceSet.Domain
 
+
+type Size =
+    | ``100`` = 0
+    | ``200`` = 1
+    | ``400`` = 2
+    | ``800`` = 3
+    
 
 [<MemoryDiagnoser>]
 type Benchmarks () =
 
     let rng = Random 123
-    let entryCount = 10_000
-    let dim1SearchCount = 100
-    let dim2SearchCount = 100
-    let dim1Min = 0
-    let dim1Max = 1000
-    let dim2Min = 0
-    let dim2Max = 100
-    
-    let testData = [|
-        for _ in 1 .. entryCount ->
-            (rng.Next (dim1Min, dim1Max)), (rng.Next (dim2Min, dim2Max))
-    |]
+    let sparsity = 0.01
+    let searchPerDimension = 10
+    let productCounts =
+        [|
+            100
+            200
+            400
+            800
+        |]
+    let supplierCount = 100
+    let customerCount = 100
+    let dataSets =
+        [| for productCount in productCounts do
+                seq {
+                    for p in 1 .. productCount do
+                        for s in 1 .. supplierCount do
+                            for c in 1 .. customerCount do
+                                let product = Product.create p
+                                let supplier = Supplier.create s
+                                let customer = Customer.create c
+                                product, supplier, customer
+                }
+                |> Seq.choose (fun entry ->
+                    if rng.NextDouble() < sparsity then
+                        Some entry
+                    else
+                        None
+                    )
+                |> Array.ofSeq
+        |]
         
-    let sliceSet = SliceSet2D testData
+    let productSupplierSearches =
+        [| for dataSet in dataSets ->
+            [| for _ in 1 .. searchPerDimension ->
+                let (product, supplier, _) = dataSet[rng.Next dataSet.Length]
+                product, supplier
+            |]
+        |]
         
-    let dim1Searches = [|
-        for _ in 1 .. dim1SearchCount ->
-            rng.Next (dim1Min, dim1Max)
-    |]
+    let productCustomerSearches =
+        [| for dataSet in dataSets ->
+            [| for _ in 1 .. searchPerDimension ->
+                let (product, _, customer) = dataSet[rng.Next dataSet.Length]
+                product, customer
+            |]
+        |]
+        
+    let supplierCustomerSearches =
+        [| for dataSet in dataSets ->
+            [| for _ in 1 .. searchPerDimension ->
+                let (_, supplier, customer) = dataSet[rng.Next dataSet.Length]
+                supplier, customer
+            |]
+        |]
+        
+        
+    let denseNaiveSliceSets =
+        dataSets
+        |> Array.map Version00.SliceSet3D
     
-    let dim2Searches = [|
-        for _ in 1 .. dim2SearchCount ->
-            rng.Next (dim2Min, dim2Max)
-    |]
+    let version01DataSets =
+        dataSets
+        |> Array.map Version01.SliceSet3D
+
+    
+    [<Params(Size.``100``, Size.``200``, Size.``400``, Size.``800``)>]
+    member val Size = Size.``100`` with get, set
       
     [<Benchmark>]
-    member _.NaiveFilter () =
+    member b.DenseNaive () =
+        let sliceSet = denseNaiveSliceSets[int b.Size]
         
         let mutable acc = 0
         
-        for dim1Search in dim1Searches do
-            testData
-            |> Array.iter (fun (dim1Value, dim2Value) ->
-                if dim1Value = dim1Search then
-                    acc <- acc + dim2Value
-                )
-            
-        for dim2Search in dim2Searches do
-            testData
-            |> Array.iter (fun (dim1Value, dim2Value) ->
-                if dim2Value = dim2Search then
-                    acc <- acc + dim1Value
-                )
-            
+        let productSupplierSearch = productSupplierSearches[int b.Size] 
+        
+        for product, supplier in productSupplierSearch do
+            for customer in sliceSet[product, supplier, All] do
+                acc <- acc + (int customer)
+
+        acc
+
     [<Benchmark>]
-    member _.SliceSet2D () =
+    member b.RangeIteration () =
+        let sliceSet = version01DataSets[int b.Size]
+        
         let mutable acc = 0
         
-        for dim1Search in dim1Searches do
-            for dim2Value in sliceSet[dim1Search, All] do
-                acc <- acc + dim2Value
+        let productSupplierSearch = productSupplierSearches[int b.Size] 
+        
+        for product, supplier in productSupplierSearch do
+            for customer in sliceSet[product, supplier, All] do
+                acc <- acc + (int customer)
 
-        for dim2Search in dim2Searches do
-            for dim1Value in sliceSet[All, dim2Search] do
-                acc <- acc + dim1Value
-
+        acc
 
 [<RequireQualifiedAccess>]
 type Args =
