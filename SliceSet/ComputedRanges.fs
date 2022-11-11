@@ -1,4 +1,4 @@
-﻿namespace SliceSet.Version02
+﻿namespace SliceSet.ComputedRanges
 
 open System
 open System.Collections.Generic
@@ -112,34 +112,34 @@ module ValueIndex =
 [<Struct>]
 type SliceSetEnumerator<'T> =
     private {
-        mutable _curKeyRangeIdx : int
-        mutable _curValueKey : ValueKey
-        mutable _curValueKeyBound : ValueKey
-        mutable _curValue : 'T
-        _keyRanges : Series<Units.ValueKey>
-        _values : Bar<Units.ValueKey, 'T>
+        mutable CurKeyRangeIdx : int
+        mutable CurValueKey : ValueKey
+        mutable CurValueKeyBound : ValueKey
+        mutable CurValue : 'T
+        KeyRanges : Series<Units.ValueKey>
+        Values : Bar<Units.ValueKey, 'T>
     }
     member e.MoveNext () =
-        if e._curValueKey < e._curValueKeyBound then
-            e._curValueKey <- e._curValueKey + 1<_>
-            e._curValue <- e._values[e._curValueKey]
+        if e.CurValueKey < e.CurValueKeyBound then
+            e.CurValueKey <- e.CurValueKey + 1<_>
+            e.CurValue <- e.Values[e.CurValueKey]
             true
         else
-            if e._curKeyRangeIdx < e._keyRanges.Length then
-                e._curKeyRangeIdx <- e._curKeyRangeIdx + 1
-                let curRange = e._keyRanges[e._curKeyRangeIdx]
-                e._curValueKey <- curRange.Start
-                e._curValueKeyBound <- curRange.Bound
-                e._curValue <- e._values[e._curValueKey]
+            if e.CurKeyRangeIdx < e.KeyRanges.Length then
+                e.CurKeyRangeIdx <- e.CurKeyRangeIdx + 1
+                let curRange = e.KeyRanges[e.CurKeyRangeIdx]
+                e.CurValueKey <- curRange.Start
+                e.CurValueKeyBound <- curRange.Bound
+                e.CurValue <- e.Values[e.CurValueKey]
                 true
             else
                 false
                 
     member e.Current : 'T =
-        if e._curValueKey < 0<_> then
+        if e.CurValueKey < 0<_> then
             raise (InvalidOperationException "Enumeration has not started. Call MoveNext.")
         else
-            e._curValue
+            e.CurValue
         
 [<Struct>]
 type SliceSet<'a when 'a : equality>(
@@ -149,12 +149,12 @@ type SliceSet<'a when 'a : equality>(
     
     member _.GetEnumerator () =
         {
-            _curKeyRangeIdx = 0
-            _curValueKey = -1<_>
-            _curValueKeyBound = 0<_>
-            _curValue = Unchecked.defaultof<'a>
-            _keyRanges = keyRanges
-            _values = index.Values
+            CurKeyRangeIdx = 0
+            CurValueKey = -1<_>
+            CurValueKeyBound = 0<_>
+            CurValue = Unchecked.defaultof<'a>
+            KeyRanges = keyRanges
+            Values = index.Values
         }
         
     member s.AsSeq () =

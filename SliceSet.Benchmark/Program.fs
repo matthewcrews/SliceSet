@@ -110,11 +110,11 @@ type Benchmarks () =
         
     let denseNaiveSliceSets =
         dataSets
-        |> Array.map (Array.map Version00.SliceSet3D)
+        |> Array.map (Array.map NaiveFiltering.SliceSet3D)
     
     let rangeIterationSliceSets =
         dataSets
-        |> Array.map (Array.map Version01.SliceSet3D)
+        |> Array.map (Array.map ParallelRanges.SliceSet3D)
 
     
     [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``)>]

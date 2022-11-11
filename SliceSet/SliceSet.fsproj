@@ -9,9 +9,9 @@
     <ItemGroup>
         <Compile Include="Collections.fs" />
         <Compile Include="Domain.fs" />
-        <Compile Include="Version00.fs" />
-        <Compile Include="Version01.fs" />
-        <Compile Include="Version02.fs" />
+        <Compile Include="NaiveFiltering.fs" />
+        <Compile Include="ParallelRanges.fs" />
+        <Compile Include="ComputedRanges.fs" />
     </ItemGroup>
 
 </Project>

@@ -77,7 +77,7 @@ let supplierCustomerSearchSets =
     
 let baselineSliceSets =
         dataSets
-        |> Array.map Version00.SliceSet3D
+        |> Array.map NaiveFiltering.SliceSet3D
     
 let rangeIterationSliceSets =
     dataSets

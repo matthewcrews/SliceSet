@@ -1,4 +1,4 @@
-﻿namespace SliceSet.Version01
+﻿namespace SliceSet.ParallelRanges
 
 open System
 open System.Collections.Generic

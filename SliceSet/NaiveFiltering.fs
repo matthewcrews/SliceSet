@@ -1,4 +1,4 @@
-﻿module SliceSet.Version00
+﻿module SliceSet.NaiveFiltering
 
 open SliceSet.Domain
 
