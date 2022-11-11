@@ -42,8 +42,10 @@ module Series =
                 if aRange.Start <=bRange.Bound && bRange.Start <= aRange.Bound then
                     let newStart = Math.max (aRange.Start, bRange.Start)
                     let newBound = Math.min (aRange.Bound, bRange.Bound)
-                    let newRange = { Start = newStart; Bound = newBound }
-                    result.Enqueue newRange
+                    // We only want ranges that actually contain values
+                    if newStart < newBound then
+                        let newRange = { Start = newStart; Bound = newBound }
+                        result.Enqueue newRange
                     
                 if aRange.Bound < bRange.Bound then
                     aIdx <- aIdx + 1
