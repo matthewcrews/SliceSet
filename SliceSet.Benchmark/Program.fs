@@ -116,6 +116,10 @@ type Benchmarks () =
         dataSets
         |> Array.map (Array.map ParallelRanges.SliceSet3D)
 
+    let computedRangeSliceSets =
+        dataSets
+        |> Array.map (Array.map ComputedRanges.SliceSet3D)
+    
     
     [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``)>]
     member val Size = ProductCount.``100`` with get, set
@@ -124,7 +128,7 @@ type Benchmarks () =
     member val Sparsity = Sparsity.``0.1%`` with get, set
       
     [<Benchmark>]
-    member b.DenseNaive () =
+    member b.NaiveFilter () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
         let sliceSet = denseNaiveSliceSets[sizeIdx][sparsityIdx]
@@ -148,14 +152,44 @@ type Benchmarks () =
         for supplier, customer in supplierCustomerSearches do
             for product in sliceSet[All, supplier, customer] do
                 acc <- acc + (int product)
-
+    
         acc
 
+    
     [<Benchmark>]
-    member b.RangeIteration () =
+    member b.ParallelRanges () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
         let sliceSet = rangeIterationSliceSets[sizeIdx][sparsityIdx]
+        
+        let mutable acc = 0
+        
+        let productSupplierSearch = productSupplierSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, supplier in productSupplierSearch do
+            for customer in sliceSet[product, supplier, All] do
+                acc <- acc + (int customer)
+                
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, customer in productCustomerSearches do
+            for supplier in sliceSet[product, All, customer] do
+                acc <- acc + (int supplier)
+                
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            for product in sliceSet[All, supplier, customer] do
+                acc <- acc + (int product)
+
+        acc
+        
+    
+    [<Benchmark>]
+    member b.ComputedRanges () =
+        let sizeIdx = int b.Size
+        let sparsityIdx = int b.Sparsity
+        let sliceSet = computedRangeSliceSets[sizeIdx][sparsityIdx]
         
         let mutable acc = 0
         
@@ -194,8 +228,26 @@ type Args =
 
 
 let profile (version: string) loopCount =
-    ()
+    printfn $"Profiling: {version}, LoopCount: {loopCount}"
+    let b = Benchmarks ()
+    let mutable result = 0
     
+    match version.ToLower() with
+    | "naivefilter" ->
+        for _ in 1 .. loopCount do
+            result <- result + b.NaiveFilter()
+            
+    | "parallelranges" ->
+        for _ in 1 .. loopCount do
+            result <- result + b.ParallelRanges()
+            
+    | "computedranges" ->
+        for _ in 1 .. loopCount do
+            result <- result + b.ComputedRanges()
+            
+    | unknownVersion -> failwith $"Unknown version: {unknownVersion}" 
+        
+    result
     
     
 [<EntryPoint>]

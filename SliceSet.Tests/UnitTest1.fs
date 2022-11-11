@@ -87,6 +87,10 @@ let computedRangesSliceSets =
     dataSets
     |> Array.map ComputedRanges.SliceSet3D
 
+let customerSeriesSliceSets =
+    dataSets
+    |> Array.map CustomSeries.SliceSet3D
+
 
 [<Test>]
 let ``ParallelRanges results match Naive`` () =
@@ -95,13 +99,13 @@ let ``ParallelRanges results match Naive`` () =
         let sizeIdx = int size
         
         let baselineSliceSet = baselineSliceSets[sizeIdx]
-        let rangeIterationSliceSet = rangeIterationSliceSets[sizeIdx]
+        let testSliceSet = rangeIterationSliceSets[sizeIdx]
         
         let productSupplierSearches = productSupplierSearchSets[sizeIdx]
         
         for product, supplier in productSupplierSearches do
             let expected = Set (baselineSliceSet[product, supplier, All])
-            let actual = Set (rangeIterationSliceSet[product, supplier, All].AsSeq())
+            let actual = Set (testSliceSet[product, supplier, All].AsSeq())
             
             // Make sure we actually got a result
             Assert.Greater (expected.Count, 0)
@@ -112,7 +116,7 @@ let ``ParallelRanges results match Naive`` () =
         
         for product, customer in productCustomerSearches do
             let expected = Set (baselineSliceSet[product, All, customer])
-            let actual = Set (rangeIterationSliceSet[product, All, customer].AsSeq())
+            let actual = Set (testSliceSet[product, All, customer].AsSeq())
             
             // Make sure we actually got a result
             Assert.Greater (expected.Count, 0)
@@ -123,7 +127,7 @@ let ``ParallelRanges results match Naive`` () =
         
         for supplier, customer in supplierCustomerSearches do
             let expected = Set (baselineSliceSet[All, supplier, customer])
-            let actual = Set (rangeIterationSliceSet[All, supplier, customer].AsSeq())
+            let actual = Set (testSliceSet[All, supplier, customer].AsSeq())
             
             // Make sure we actually got a result
             Assert.Greater (expected.Count, 0)
@@ -138,13 +142,13 @@ let ``ComputedRanges results match Naive`` () =
         let sizeIdx = int size
         
         let baselineSliceSet = baselineSliceSets[sizeIdx]
-        let computedRangesSliceSet = computedRangesSliceSets[sizeIdx]
+        let testSliceSet = computedRangesSliceSets[sizeIdx]
         
         let productSupplierSearches = productSupplierSearchSets[sizeIdx]
         
         for product, supplier in productSupplierSearches do
             let expected = Set (baselineSliceSet[product, supplier, All])
-            let actual = Set (computedRangesSliceSet[product, supplier, All].AsSeq())
+            let actual = Set (testSliceSet[product, supplier, All].AsSeq())
             
             // Make sure we actually got a result
             Assert.Greater (expected.Count, 0)
@@ -155,7 +159,7 @@ let ``ComputedRanges results match Naive`` () =
         
         for product, customer in productCustomerSearches do
             let expected = Set (baselineSliceSet[product, All, customer])
-            let actual = Set (computedRangesSliceSet[product, All, customer].AsSeq())
+            let actual = Set (testSliceSet[product, All, customer].AsSeq())
             
             // Make sure we actually got a result
             Assert.Greater (expected.Count, 0)
@@ -166,7 +170,50 @@ let ``ComputedRanges results match Naive`` () =
         
         for supplier, customer in supplierCustomerSearches do
             let expected = Set (baselineSliceSet[All, supplier, customer])
-            let actual = Set (computedRangesSliceSet[All, supplier, customer].AsSeq())
+            let actual = Set (testSliceSet[All, supplier, customer].AsSeq())
+            
+            // Make sure we actually got a result
+            Assert.Greater (expected.Count, 0)
+            // Test that the values are equivalent
+            Assert.AreEqual (expected, actual)
+            
+            
+[<Test>]
+let ``CustomSeries results match Naive`` () =
+    
+    for size in sizes do
+        let sizeIdx = int size
+        
+        let baselineSliceSet = baselineSliceSets[sizeIdx]
+        let testSliceSets = customerSeriesSliceSets[sizeIdx]
+        
+        let productSupplierSearches = productSupplierSearchSets[sizeIdx]
+        
+        for product, supplier in productSupplierSearches do
+            let expected = Set (baselineSliceSet[product, supplier, All])
+            let actual = Set (testSliceSets[product, supplier, All].AsSeq())
+            
+            // Make sure we actually got a result
+            Assert.Greater (expected.Count, 0)
+            // Test that the values are equivalent
+            Assert.AreEqual (expected, actual)
+            
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx]
+        
+        for product, customer in productCustomerSearches do
+            let expected = Set (baselineSliceSet[product, All, customer])
+            let actual = Set (testSliceSets[product, All, customer].AsSeq())
+            
+            // Make sure we actually got a result
+            Assert.Greater (expected.Count, 0)
+            // Test that the values are equivalent
+            Assert.AreEqual (expected, actual)
+            
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            let expected = Set (baselineSliceSet[All, supplier, customer])
+            let actual = Set (testSliceSets[All, supplier, customer].AsSeq())
             
             // Make sure we actually got a result
             Assert.Greater (expected.Count, 0)
