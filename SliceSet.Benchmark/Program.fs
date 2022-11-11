@@ -231,7 +231,7 @@ type Benchmarks () =
         acc
         
         
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.CustomSeries () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -287,7 +287,7 @@ type Benchmarks () =
 
         acc        
         
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.Branchless () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -352,9 +352,13 @@ let profile (version: string) loopCount =
         for _ in 1 .. loopCount do
             result <- result + b.CustomSeries()
             
-    | "alternateintersect" ->
+    | "arraypool" ->
         for _ in 1 .. loopCount do
             result <- result + b.ArrayPool()
+            
+    | "branchless" ->
+        for _ in 1 .. loopCount do
+            result <- result + b.Branchless()
             
     | unknownVersion -> failwith $"Unknown version: {unknownVersion}" 
         

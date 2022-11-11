@@ -1,4 +1,4 @@
-﻿namespace SliceSet.ArrayPool
+﻿namespace SliceSet.Branchless
 
 open System
 open System.Buffers
@@ -33,8 +33,7 @@ module Series =
             Array.empty
             
         else
-            let pool = ArrayPool.Shared
-            let resultAcc = pool.Rent (a.Length + b.Length)
+            let resultAcc = ArrayPool.Shared.Rent (a.Length + b.Length)
             let mutable aIdx = 0
             let mutable bIdx = 0
             let mutable resultIdx = 0
@@ -53,8 +52,10 @@ module Series =
                     bIdx <- bIdx + (retype bLessThanA)
                     aIdx <- aIdx + (retype aLessThanB)
                 else
-                    let newStart = Math.max (aRange.Start, bRange.Start)
-                    let newBound = Math.min (aRange.Bound, bRange.Bound)
+                    let aStartGreater = retype (aRange.Start > bRange.Start)
+                    let newStart = aRange.Start * aStartGreater + bRange.Start * (1 - aStartGreater)
+                    let aBoundLess = retype (aRange.Bound < bRange.Bound)
+                    let newBound = aRange.Bound * aBoundLess + bRange.Bound * (1 - aBoundLess)
                     let newRange = { Start = newStart; Bound = newBound }
                     resultAcc[resultIdx] <- newRange
                     resultIdx <- resultIdx + 1
@@ -67,7 +68,7 @@ module Series =
             let result = GC.AllocateUninitializedArray resultIdx
             Array.Copy (resultAcc, result, resultIdx)
             // Return the rented array
-            pool.Return (resultAcc, false)
+            ArrayPool.Shared.Return (resultAcc, false)
             result
 
 type ValueIndex<'T> =
