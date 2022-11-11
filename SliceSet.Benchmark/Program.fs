@@ -1,4 +1,5 @@
 ﻿open System
+open System.Collections.Generic
 open Argu
 open BenchmarkDotNet.Diagnosers
 open BenchmarkDotNet.Attributes
@@ -7,32 +8,55 @@ open SliceSet
 open SliceSet.Domain
 
 
-type Size =
+type ProductCount =
     | ``100`` = 0
     | ``200`` = 1
     | ``400`` = 2
     | ``800`` = 3
+    
+type Sparsity =
+    | ``0.1%`` = 0
+    | ``1.0%`` = 1
+    | ``10%`` = 2
     
 
 [<MemoryDiagnoser>]
 type Benchmarks () =
 
     let rng = Random 123
-    let sparsity = 0.01
     let searchPerDimension = 10
     let productCounts =
+        [|
+            ProductCount.``100``
+            ProductCount.``200``
+            ProductCount.``400``
+            ProductCount.``800``
+        |]
+        
+    let productCountValues =
         [|
             100
             200
             400
             800
         |]
+
+    let sparsities =
+        [|
+            0.1 / 100.0
+            1.0 / 100.0
+            10.0 / 100.0
+        |]
+    
     let supplierCount = 100
     let customerCount = 100
+    
     let dataSets =
         [| for productCount in productCounts do
+            let productCountValue = productCountValues[int productCount]
+            [| for sparsity in sparsities do
                 seq {
-                    for p in 1 .. productCount do
+                    for p in 1 .. productCountValue do
                         for s in 1 .. supplierCount do
                             for c in 1 .. customerCount do
                                 let product = Product.create p
@@ -47,70 +71,111 @@ type Benchmarks () =
                         None
                     )
                 |> Array.ofSeq
+            |]       
         |]
-        
-    let productSupplierSearches =
-        [| for dataSet in dataSets ->
-            [| for _ in 1 .. searchPerDimension ->
-                let (product, supplier, _) = dataSet[rng.Next dataSet.Length]
-                product, supplier
+    
+    let productSupplierSearchSets =
+        [| for productCount in productCounts do
+            [| for sparsity in sparsities do
+                let data = dataSets[int productCount][int sparsity]
+                [| for _ in 1 .. searchPerDimension ->
+                    let (product, supplier, _) = data[rng.Next data.Length]
+                    product, supplier
+                |]
             |]
         |]
         
-    let productCustomerSearches =
-        [| for dataSet in dataSets ->
-            [| for _ in 1 .. searchPerDimension ->
-                let (product, _, customer) = dataSet[rng.Next dataSet.Length]
-                product, customer
+    let productCustomerSearchSets =
+        [| for productCount in productCounts do
+            [| for sparsity in sparsities do
+                let data = dataSets[int productCount][int sparsity]
+                [| for _ in 1 .. searchPerDimension ->
+                    let (product, _, customer) = data[rng.Next data.Length]
+                    product, customer
+                |]
             |]
         |]
         
-    let supplierCustomerSearches =
-        [| for dataSet in dataSets ->
-            [| for _ in 1 .. searchPerDimension ->
-                let (_, supplier, customer) = dataSet[rng.Next dataSet.Length]
-                supplier, customer
+    let supplierCustomerSearchSets =
+        [| for productCount in productCounts do
+            [| for sparsity in sparsities do
+                let data = dataSets[int productCount][int sparsity]
+                [| for _ in 1 .. searchPerDimension ->
+                    let (_, supplier, customer) = data[rng.Next data.Length]
+                    supplier, customer
+                |]
             |]
         |]
         
         
     let denseNaiveSliceSets =
         dataSets
-        |> Array.map Version00.SliceSet3D
+        |> Array.map (Array.map Version00.SliceSet3D)
     
-    let version01DataSets =
+    let rangeIterationSliceSets =
         dataSets
-        |> Array.map Version01.SliceSet3D
+        |> Array.map (Array.map Version01.SliceSet3D)
 
     
-    [<Params(Size.``100``, Size.``200``, Size.``400``, Size.``800``)>]
-    member val Size = Size.``100`` with get, set
+    [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``)>]
+    member val Size = ProductCount.``100`` with get, set
+    
+    [<Params(Sparsity.``0.1%``, Sparsity.``1.0%``, Sparsity.``10%``)>]
+    member val Sparsity = Sparsity.``0.1%`` with get, set
       
     [<Benchmark>]
     member b.DenseNaive () =
-        let sliceSet = denseNaiveSliceSets[int b.Size]
+        let sizeIdx = int b.Size
+        let sparsityIdx = int b.Sparsity
+        let sliceSet = denseNaiveSliceSets[sizeIdx][sparsityIdx]
         
         let mutable acc = 0
         
-        let productSupplierSearch = productSupplierSearches[int b.Size] 
+        let productSupplierSearch = productSupplierSearchSets[sizeIdx][sparsityIdx]
         
         for product, supplier in productSupplierSearch do
             for customer in sliceSet[product, supplier, All] do
                 acc <- acc + (int customer)
+                
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, customer in productCustomerSearches do
+            for supplier in sliceSet[product, All, customer] do
+                acc <- acc + (int supplier)
+                
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            for product in sliceSet[All, supplier, customer] do
+                acc <- acc + (int product)
 
         acc
 
     [<Benchmark>]
     member b.RangeIteration () =
-        let sliceSet = version01DataSets[int b.Size]
+        let sizeIdx = int b.Size
+        let sparsityIdx = int b.Sparsity
+        let sliceSet = rangeIterationSliceSets[sizeIdx][sparsityIdx]
         
         let mutable acc = 0
         
-        let productSupplierSearch = productSupplierSearches[int b.Size] 
+        let productSupplierSearch = productSupplierSearchSets[sizeIdx][sparsityIdx]
         
         for product, supplier in productSupplierSearch do
             for customer in sliceSet[product, supplier, All] do
                 acc <- acc + (int customer)
+                
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, customer in productCustomerSearches do
+            for supplier in sliceSet[product, All, customer] do
+                acc <- acc + (int supplier)
+                
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            for product in sliceSet[All, supplier, customer] do
+                acc <- acc + (int product)
 
         acc
 
