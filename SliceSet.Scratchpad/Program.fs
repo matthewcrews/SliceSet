@@ -1,4 +1,5 @@
 ﻿open SliceSet
+open SliceSet.Domain
 
 // let test =
 //     SliceSet2D [
@@ -21,7 +22,7 @@
 //     printfn $"{a}"
     
 let t2 =
-    SliceSet3D [
+    ComputedRanges.SliceSet3D [
         1, 1, "a"
         1, 2, "b"
         1, 3, "c"
@@ -31,7 +32,7 @@ let t2 =
         3, 3, "dd"
     ]
 
-let x2 = t2[1, 2, All]
+let x2 = t2[1, All, "b"]
 
 // let x3 = x2[2, All]
 

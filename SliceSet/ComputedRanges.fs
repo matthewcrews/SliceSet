@@ -36,6 +36,8 @@ module Series =
             let mutable bRange = b[bIdx]
             let result = Queue()
             while aIdx < a.Length && bIdx < b.Length do
+                aRange <- a[aIdx]
+                bRange <- b[bIdx]
         
                 if aRange.Start <=bRange.Bound && bRange.Start <= aRange.Bound then
                     let newStart = Math.max (aRange.Start, bRange.Start)
@@ -45,10 +47,8 @@ module Series =
                     
                 if aRange.Bound < bRange.Bound then
                     aIdx <- aIdx + 1
-                    aRange <- a[aIdx]
                 else
                     bIdx <- bIdx + 1
-                    bRange <- b[bIdx]
         
             result.ToArray()
 
@@ -120,20 +120,27 @@ type SliceSetEnumerator<'T> =
         Values : Bar<Units.ValueKey, 'T>
     }
     member e.MoveNext () =
-        if e.CurValueKey < e.CurValueKeyBound then
-            e.CurValueKey <- e.CurValueKey + 1<_>
+        if e.CurValueKey < 0<_> && e.CurKeyRangeIdx < e.KeyRanges.Length  then
+            let curRange = e.KeyRanges[e.CurKeyRangeIdx]
+            e.CurValueKey <- curRange.Start
+            e.CurValueKeyBound <- curRange.Bound
             e.CurValue <- e.Values[e.CurValueKey]
             true
         else
-            if e.CurKeyRangeIdx < e.KeyRanges.Length then
-                e.CurKeyRangeIdx <- e.CurKeyRangeIdx + 1
-                let curRange = e.KeyRanges[e.CurKeyRangeIdx]
-                e.CurValueKey <- curRange.Start
-                e.CurValueKeyBound <- curRange.Bound
+            e.CurValueKey <- e.CurValueKey + 1<_>
+            if e.CurValueKey < e.CurValueKeyBound then
                 e.CurValue <- e.Values[e.CurValueKey]
                 true
             else
-                false
+                e.CurKeyRangeIdx <- e.CurKeyRangeIdx + 1
+                if e.CurKeyRangeIdx < e.KeyRanges.Length then
+                    let curRange = e.KeyRanges[e.CurKeyRangeIdx]
+                    e.CurValueKey <- curRange.Start
+                    e.CurValueKeyBound <- curRange.Bound
+                    e.CurValue <- e.Values[e.CurValueKey]
+                    true
+                else
+                    false
                 
     member e.Current : 'T =
         if e.CurValueKey < 0<_> then
@@ -228,7 +235,7 @@ type SliceSet3D<'a, 'b, 'c when 'a : equality and 'b : equality and 'c : equalit
                 |> Series.intersect aSeries
                 |> Series.intersect cSeries
             
-            SliceSet (newKeyRanges, cIndex)
+            SliceSet (newKeyRanges, bIndex)
             
     member _.Item
         with get (_: All, bKey: 'b, cKey: 'c) =
@@ -248,5 +255,5 @@ type SliceSet3D<'a, 'b, 'c when 'a : equality and 'b : equality and 'c : equalit
                 |> Series.intersect bSeries
                 |> Series.intersect cSeries
             
-            SliceSet (newKeyRanges, cIndex)
+            SliceSet (newKeyRanges, aIndex)
 

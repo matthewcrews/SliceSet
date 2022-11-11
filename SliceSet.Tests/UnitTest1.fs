@@ -81,7 +81,7 @@ let baselineSliceSets =
     
 let rangeIterationSliceSets =
     dataSets
-    |> Array.map Version01.SliceSet3D
+    |> Array.map ParallelRanges.SliceSet3D
 
 
 [<Test>]
