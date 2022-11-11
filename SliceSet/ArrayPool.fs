@@ -1,6 +1,7 @@
-﻿namespace SliceSet.CustomSeries
+﻿namespace SliceSet.Branchless
 
 open System
+open System.Buffers
 open System.Collections.Generic
 open SliceSet.Collections
 open SliceSet.Domain
@@ -13,79 +14,55 @@ type Range<[<Measure>] 'Measure> =
         // This is the EXCLUSIVE upper bound
         Bound : int<'Measure>
     }
-
-
-[<Struct>]
-type Series<[<Measure>] 'Measure> =
-    {
-        mutable Length : int
-        Ranges : Range<'Measure>[]
-    }
-    
-    member s.Item
-        with inline get k = s.Ranges[k]
-        
-    member s.Add v =
-        s.Ranges[s.Length] <- v
-        s.Length <- s.Length + 1
-
+     
+type Series<[<Measure>] 'Measure> = Range<'Measure>[]
 
 module Series =
     
-    // [<GeneralizableValue>]
-    let inline empty<[<Measure>] 'Measure> =
-        let ranges : Range<'Measure>[] = Array.empty
-        {
-            Length = 0
-            Ranges = ranges
-        }
+    let all (length: int) =
+        [| { Start = 0<_>; Bound = length * 1<_> } |]
     
-    let create capacity =
-        let values = Array.zeroCreate capacity
-        {
-            Length = 0
-            Ranges = values
-        }
-        
-    let ofArray (ranges: Range<_>[]) =
-        {
-            Length = ranges.Length
-            Ranges = ranges
-        }
-    
-    let inline all (length: int) =
-        {
-            Length = 1
-            Ranges = [| { Start = 0<_>; Bound = length * 1<_> } |]
-        }
+    let empty<[<Measure>] 'Measure> =
+        [| { Start = LanguagePrimitives.Int32WithMeasure<'Measure> 0; Bound = LanguagePrimitives.Int32WithMeasure<'Measure> 0 } |]
     
     let intersect (a: Series<'Measure>) (b: Series<'Measure>) : Series<'Measure> =
         if a.Length = 0 || b.Length = 0 then
-            empty
+            Array.empty
             
         else
+            let pool = ArrayPool.Shared
+            let resultAcc = pool.Rent (a.Length + b.Length)
             let mutable aIdx = 0
             let mutable bIdx = 0
+            let mutable resultIdx = 0
             let mutable aRange = a[aIdx]
             let mutable bRange = b[bIdx]
-            let mutable result = create (Math.Max (a.Length, b.Length))
+            
             while aIdx < a.Length && bIdx < b.Length do
                 aRange <- a[aIdx]
                 bRange <- b[bIdx]
         
-                if aRange.Start <=bRange.Bound && bRange.Start <= aRange.Bound then
-                    let newStart = Math.max (aRange.Start, bRange.Start)
-                    let newBound = Math.min (aRange.Bound, bRange.Bound)
-                    // We only want ranges that actually contain values
-                    if newStart < newBound then
-                        let newRange = { Start = newStart; Bound = newBound }
-                        result.Add newRange
-                    
-                if aRange.Bound < bRange.Bound then
+                if bRange.Bound <= aRange.Start then
+                    bIdx <- bIdx + 1
+                elif aRange.Bound <= bRange.Start then
                     aIdx <- aIdx + 1
                 else
-                    bIdx <- bIdx + 1
-        
+                    let newStart = Math.max (aRange.Start, bRange.Start)
+                    let newBound = Math.min (aRange.Bound, bRange.Bound)
+                    let newRange = { Start = newStart; Bound = newBound }
+                    resultAcc[resultIdx] <- newRange
+                    resultIdx <- resultIdx + 1
+                        
+                    if aRange.Bound < bRange.Bound then
+                        aIdx <- aIdx + 1
+                    else
+                        bIdx <- bIdx + 1
+                        
+            // Copy the final results
+            let result = GC.AllocateUninitializedArray resultIdx
+            Array.Copy (resultAcc, result, resultIdx)
+            // Return the rented array
+            pool.Return (resultAcc, false)
             result
 
 type ValueIndex<'T> =
@@ -136,8 +113,7 @@ module ValueIndex =
             ranges
             |> Seq.map (fun (KeyValue (value, ranges)) ->
                 let rangeArray = ranges.ToArray()
-                let series = Series.ofArray rangeArray
-                KeyValuePair (value, series))
+                KeyValuePair (value, rangeArray))
             |> Dictionary
         
         {

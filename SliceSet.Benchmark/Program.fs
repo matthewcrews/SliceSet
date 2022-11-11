@@ -21,6 +21,11 @@ type Sparsity =
     
 
 [<MemoryDiagnoser>]
+[<HardwareCounters(
+    HardwareCounter.BranchMispredictions,
+    HardwareCounter.BranchInstructions,
+    HardwareCounter.CacheMisses)>]
+[<DisassemblyDiagnoser(printSource=true, exportCombinedDisassemblyReport=true, exportHtml=true, exportGithubMarkdown=true, printInstructionAddresses=true, maxDepth=3)>]
 type Benchmarks () =
 
     let rng = Random 123
@@ -124,43 +129,51 @@ type Benchmarks () =
         dataSets
         |> Array.map (Array.map CustomSeries.SliceSet3D)
     
+    let arrayPoolSliceSets =
+        dataSets
+        |> Array.map (Array.map ArrayPool.SliceSet3D)
     
-    [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``)>]
-    member val Size = ProductCount.``100`` with get, set
+    let branchlessSliceSets =
+        dataSets
+        |> Array.map (Array.map Branchless.SliceSet3D)
+    
+    // [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``)>]
+    [<Params(ProductCount.``800``)>]
+    member val Size = ProductCount.``800`` with get, set
     
     [<Params(Sparsity.``0.1%``, Sparsity.``1.0%``, Sparsity.``10%``)>]
     member val Sparsity = Sparsity.``0.1%`` with get, set
       
     // [<Benchmark>]
-    // member b.NaiveFilter () =
-    //     let sizeIdx = int b.Size
-    //     let sparsityIdx = int b.Sparsity
-    //     let sliceSet = denseNaiveSliceSets[sizeIdx][sparsityIdx]
-    //     
-    //     let mutable acc = 0
-    //     
-    //     let productSupplierSearch = productSupplierSearchSets[sizeIdx][sparsityIdx]
-    //     
-    //     for product, supplier in productSupplierSearch do
-    //         for customer in sliceSet[product, supplier, All] do
-    //             acc <- acc + (int customer)
-    //             
-    //     let productCustomerSearches = productCustomerSearchSets[sizeIdx][sparsityIdx]
-    //     
-    //     for product, customer in productCustomerSearches do
-    //         for supplier in sliceSet[product, All, customer] do
-    //             acc <- acc + (int supplier)
-    //             
-    //     let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx][sparsityIdx]
-    //     
-    //     for supplier, customer in supplierCustomerSearches do
-    //         for product in sliceSet[All, supplier, customer] do
-    //             acc <- acc + (int product)
-    //
-    //     acc
+    member b.NaiveFilter () =
+        let sizeIdx = int b.Size
+        let sparsityIdx = int b.Sparsity
+        let sliceSet = denseNaiveSliceSets[sizeIdx][sparsityIdx]
+        
+        let mutable acc = 0
+        
+        let productSupplierSearch = productSupplierSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, supplier in productSupplierSearch do
+            for customer in sliceSet[product, supplier, All] do
+                acc <- acc + (int customer)
+                
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, customer in productCustomerSearches do
+            for supplier in sliceSet[product, All, customer] do
+                acc <- acc + (int supplier)
+                
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            for product in sliceSet[All, supplier, customer] do
+                acc <- acc + (int product)
+    
+        acc
 
     
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.ParallelRanges () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -218,11 +231,11 @@ type Benchmarks () =
         acc
         
         
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.CustomSeries () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
-        let sliceSet = computedRangeSliceSets[sizeIdx][sparsityIdx]
+        let sliceSet = customSeriesSliceSets[sizeIdx][sparsityIdx]
         
         let mutable acc = 0
         
@@ -245,8 +258,62 @@ type Benchmarks () =
                 acc <- acc + (int product)
 
         acc
+
+    [<Benchmark>]
+    member b.ArrayPool () =
+        let sizeIdx = int b.Size
+        let sparsityIdx = int b.Sparsity
+        let sliceSet = arrayPoolSliceSets[sizeIdx][sparsityIdx]
         
+        let mutable acc = 0
         
+        let productSupplierSearch = productSupplierSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, supplier in productSupplierSearch do
+            for customer in sliceSet[product, supplier, All] do
+                acc <- acc + (int customer)
+                
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, customer in productCustomerSearches do
+            for supplier in sliceSet[product, All, customer] do
+                acc <- acc + (int supplier)
+                
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            for product in sliceSet[All, supplier, customer] do
+                acc <- acc + (int product)
+
+        acc        
+        
+    // [<Benchmark>]
+    member b.Branchless () =
+        let sizeIdx = int b.Size
+        let sparsityIdx = int b.Sparsity
+        let sliceSet = branchlessSliceSets[sizeIdx][sparsityIdx]
+        
+        let mutable acc = 0
+        
+        let productSupplierSearch = productSupplierSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, supplier in productSupplierSearch do
+            for customer in sliceSet[product, supplier, All] do
+                acc <- acc + (int customer)
+                
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, customer in productCustomerSearches do
+            for supplier in sliceSet[product, All, customer] do
+                acc <- acc + (int supplier)
+                
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            for product in sliceSet[All, supplier, customer] do
+                acc <- acc + (int product)
+
+        acc 
 
 [<RequireQualifiedAccess>]
 type Args =
@@ -267,10 +334,11 @@ let profile (version: string) loopCount =
     let b = Benchmarks ()
     let mutable result = 0
     
+    printfn "Starting Loops..."
     match version.ToLower() with
-    // | "naivefilter" ->
-    //     for _ in 1 .. loopCount do
-    //         result <- result + b.NaiveFilter()
+    | "naivefilter" ->
+        for _ in 1 .. loopCount do
+            result <- result + b.NaiveFilter()
             
     | "parallelranges" ->
         for _ in 1 .. loopCount do
@@ -283,6 +351,10 @@ let profile (version: string) loopCount =
     | "customseries" ->
         for _ in 1 .. loopCount do
             result <- result + b.CustomSeries()
+            
+    | "alternateintersect" ->
+        for _ in 1 .. loopCount do
+            result <- result + b.ArrayPool()
             
     | unknownVersion -> failwith $"Unknown version: {unknownVersion}" 
         
