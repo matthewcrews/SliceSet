@@ -81,11 +81,11 @@ let baselineSliceSets =
     
 let rangeIterationSliceSets =
     dataSets
-    |> Array.map ParallelRanges.SliceSet3D
+    |> Array.map LazyIteration.SliceSet3D
 
 let computedRangesSliceSets =
     dataSets
-    |> Array.map ComputedRanges.SliceSet3D
+    |> Array.map EagerRangeEval.SliceSet3D
 
 let customerSeriesSliceSets =
     dataSets
@@ -98,6 +98,10 @@ let arrayPoolSliceSets =
 let branchlessSliceSets =
     dataSets
     |> Array.map Branchless.SliceSet3D
+    
+let customPoolSliceSets =
+    dataSets
+    |> Array.map CustomPool.SliceSet3D
     
     
 [<Test>]
@@ -280,6 +284,48 @@ let ``Branchless results match Naive`` () =
         
         let baselineSliceSet = baselineSliceSets[sizeIdx]
         let testSliceSets = branchlessSliceSets[sizeIdx]
+        
+        let productSupplierSearches = productSupplierSearchSets[sizeIdx]
+        
+        for product, supplier in productSupplierSearches do
+            let expected = Set (baselineSliceSet[product, supplier, All])
+            let actual = Set (testSliceSets[product, supplier, All].AsSeq())
+            
+            // Make sure we actually got a result
+            Assert.Greater (expected.Count, 0)
+            // Test that the values are equivalent
+            Assert.AreEqual (expected, actual)
+            
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx]
+        
+        for product, customer in productCustomerSearches do
+            let expected = Set (baselineSliceSet[product, All, customer])
+            let actual = Set (testSliceSets[product, All, customer].AsSeq())
+            
+            // Make sure we actually got a result
+            Assert.Greater (expected.Count, 0)
+            // Test that the values are equivalent
+            Assert.AreEqual (expected, actual)
+            
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            let expected = Set (baselineSliceSet[All, supplier, customer])
+            let actual = Set (testSliceSets[All, supplier, customer].AsSeq())
+            
+            // Make sure we actually got a result
+            Assert.Greater (expected.Count, 0)
+            // Test that the values are equivalent
+            Assert.AreEqual (expected, actual)
+            
+[<Test>]
+let ``CustomPool results match Naive`` () =
+    
+    for size in sizes do
+        let sizeIdx = int size
+        
+        let baselineSliceSet = baselineSliceSets[sizeIdx]
+        let testSliceSets = customPoolSliceSets[sizeIdx]
         
         let productSupplierSearches = productSupplierSearchSets[sizeIdx]
         

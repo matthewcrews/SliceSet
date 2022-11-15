@@ -119,11 +119,11 @@ type Benchmarks () =
     
     let rangeIterationSliceSets =
         dataSets
-        |> Array.map (Array.map ParallelRanges.SliceSet3D)
+        |> Array.map (Array.map LazyIteration.SliceSet3D)
 
     let computedRangeSliceSets =
         dataSets
-        |> Array.map (Array.map ComputedRanges.SliceSet3D)
+        |> Array.map (Array.map EagerRangeEval.SliceSet3D)
     
     let customSeriesSliceSets =
         dataSets
@@ -136,6 +136,10 @@ type Benchmarks () =
     let branchlessSliceSets =
         dataSets
         |> Array.map (Array.map Branchless.SliceSet3D)
+        
+    let customPoolSliceSets =
+        dataSets
+        |> Array.map (Array.map CustomPool.SliceSet3D)
     
     // [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``)>]
     [<Params(ProductCount.``800``)>]
@@ -173,7 +177,7 @@ type Benchmarks () =
         acc
 
     
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.ParallelRanges () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -231,7 +235,7 @@ type Benchmarks () =
         acc
         
         
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.CustomSeries () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -287,7 +291,7 @@ type Benchmarks () =
 
         acc        
         
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.Branchless () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -313,7 +317,36 @@ type Benchmarks () =
             for product in sliceSet[All, supplier, customer] do
                 acc <- acc + (int product)
 
+        acc
+        
+    [<Benchmark>]
+    member b.CustomPool () =
+        let sizeIdx = int b.Size
+        let sparsityIdx = int b.Sparsity
+        let sliceSet = customPoolSliceSets[sizeIdx][sparsityIdx]
+        
+        let mutable acc = 0
+        
+        let productSupplierSearch = productSupplierSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, supplier in productSupplierSearch do
+            for customer in sliceSet[product, supplier, All] do
+                acc <- acc + (int customer)
+                
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, customer in productCustomerSearches do
+            for supplier in sliceSet[product, All, customer] do
+                acc <- acc + (int supplier)
+                
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            for product in sliceSet[All, supplier, customer] do
+                acc <- acc + (int product)
+
         acc 
+
 
 [<RequireQualifiedAccess>]
 type Args =
@@ -359,6 +392,10 @@ let profile (version: string) loopCount =
     | "branchless" ->
         for _ in 1 .. loopCount do
             result <- result + b.Branchless()
+            
+    | "custompool" ->
+        for _ in 1 .. loopCount do
+            result <- result + b.CustomPool()
             
     | unknownVersion -> failwith $"Unknown version: {unknownVersion}" 
         

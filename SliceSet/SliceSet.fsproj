@@ -10,10 +10,11 @@
         <Compile Include="Collections.fs" />
         <Compile Include="Domain.fs" />
         <Compile Include="NaiveFiltering.fs" />
-        <Compile Include="ParallelRanges.fs" />
-        <Compile Include="ComputedRanges.fs" />
+        <Compile Include="LasyIteration.fs" />
+        <Compile Include="EagerRangeEval.fs" />
         <Compile Include="CustomSeries.fs" />
         <Compile Include="Branchless.fs" />
+        <Compile Include="CustomPool.fs" />
         <Compile Include="ArrayPool.fs" />
     </ItemGroup>
 

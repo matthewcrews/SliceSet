@@ -1,4 +1,4 @@
-﻿namespace SliceSet.ParallelRanges
+﻿namespace SliceSet.LazyIteration
 
 open System
 open System.Collections.Generic

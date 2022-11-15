@@ -1,4 +1,4 @@
-﻿namespace SliceSet.ComputedRanges
+﻿namespace SliceSet.EagerRangeEval
 
 open System
 open System.Collections.Generic
