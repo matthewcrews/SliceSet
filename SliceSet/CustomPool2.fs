@@ -1,36 +1,67 @@
-﻿namespace SliceSet.ArrayPool
+﻿namespace SliceSet.CustomPool2
+
 
 open System
 open System.Buffers
 open System.Collections.Generic
+open System.Numerics
 open SliceSet.Collections
 open SliceSet.Domain
 
 
 [<Struct>]
-type Range<[<Measure>] 'Measure> =
+type Range =
     {
-        Start : int<'Measure>
+        Start : int<Units.ValueKey>
         // This is the EXCLUSIVE upper bound
-        Bound : int<'Measure>
+        Bound : int<Units.ValueKey>
     }
      
-type Series<[<Measure>] 'Measure> = Range<'Measure>[]
+type Series = Range[]
 
 module Series =
     
+    module private RangePool =
+        
+        let pools =
+            [|
+                for _ in 0 .. 30 ->
+                    Stack()
+            |]
+
+        let computeBucketAndSize x =
+            let leadingZeroCount = BitOperations.LeadingZeroCount (uint (x - 1))
+            let bucket = 32 - leadingZeroCount
+            let size = 1 <<< (32 - leadingZeroCount)
+            bucket, size
+        
+        
+        let rent (minSize: int) =
+            let bucket, size = computeBucketAndSize minSize
+            
+            if pools[bucket].Count > 0 then
+                pools[bucket].Pop ()
+            else
+                Array.zeroCreate size
+            
+            
+        let restore (arr: Range[]) =
+            let bucket, _ = computeBucketAndSize arr.Length
+            pools[bucket].Push arr
+        
+        
     let all (length: int) =
         [| { Start = 0<_>; Bound = length * 1<_> } |]
     
-    let empty<[<Measure>] 'Measure> =
-        [| { Start = LanguagePrimitives.Int32WithMeasure<'Measure> 0; Bound = LanguagePrimitives.Int32WithMeasure<'Measure> 0 } |]
+    let empty =
+        [| { Start = 0 * 1<_>; Bound = 0 * 1<_> } |]
     
-    let intersect (a: Series<'Measure>) (b: Series<'Measure>) : Series<'Measure> =
+    let intersect (a: Series) (b: Series) : Series =
         if a.Length = 0 || b.Length = 0 then
-            Array.empty
+            empty
             
         else
-            let resultAcc = ArrayPool.Shared.Rent (a.Length + b.Length)
+            let resultAcc = RangePool.rent (a.Length + b.Length)
             let mutable aIdx = 0
             let mutable bIdx = 0
             let mutable resultIdx = 0
@@ -61,12 +92,12 @@ module Series =
             let result = GC.AllocateUninitializedArray resultIdx
             Array.Copy (resultAcc, result, resultIdx)
             // Return the rented array
-            ArrayPool.Shared.Return (resultAcc, false)
+            RangePool.restore resultAcc
             result
 
 type ValueIndex<'T> =
     {
-        ValueSeries : Dictionary<'T, Series<Units.ValueKey>>
+        ValueSeries : Dictionary<'T, Series>
         Values : bar<Units.ValueKey, 'T>
     }
 
@@ -128,7 +159,7 @@ type SliceSetEnumerator<'T> =
         mutable CurValueKey : ValueKey
         mutable CurValueKeyBound : ValueKey
         mutable CurValue : 'T
-        KeyRanges : Series<Units.ValueKey>
+        KeyRanges : Series
         Values : Bar<Units.ValueKey, 'T>
     }
     member e.MoveNext () =
@@ -162,7 +193,7 @@ type SliceSetEnumerator<'T> =
         
 [<Struct>]
 type SliceSet<'a when 'a : equality>(
-    keyRanges: Series<Units.ValueKey>,
+    keyRanges: Series,
     index: ValueIndex<'a>
     ) =
     
@@ -188,7 +219,7 @@ type SliceSet<'a when 'a : equality>(
             
 [<Struct>]
 type SliceSet3D<'a, 'b, 'c when 'a : equality and 'b : equality and 'c : equality>(
-    keyRanges: Series<Units.ValueKey>,
+    keyRanges: Series,
     aIndex: ValueIndex<'a>,
     bIndex: ValueIndex<'b>,
     cIndex: ValueIndex<'c>

@@ -140,6 +140,10 @@ type Benchmarks () =
     let customPoolSliceSets =
         dataSets
         |> Array.map (Array.map CustomPool.SliceSet3D)
+        
+    let customPool2SliceSets =
+        dataSets
+        |> Array.map (Array.map CustomPool2.SliceSet3D)
     
     // [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``)>]
     [<Params(ProductCount.``800``)>]
@@ -177,7 +181,7 @@ type Benchmarks () =
         acc
 
     
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.ParallelRanges () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -319,11 +323,40 @@ type Benchmarks () =
 
         acc
         
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.CustomPool () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
         let sliceSet = customPoolSliceSets[sizeIdx][sparsityIdx]
+        
+        let mutable acc = 0
+        
+        let productSupplierSearch = productSupplierSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, supplier in productSupplierSearch do
+            for customer in sliceSet[product, supplier, All] do
+                acc <- acc + (int customer)
+                
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, customer in productCustomerSearches do
+            for supplier in sliceSet[product, All, customer] do
+                acc <- acc + (int supplier)
+                
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            for product in sliceSet[All, supplier, customer] do
+                acc <- acc + (int product)
+
+        acc 
+
+    
+    // [<Benchmark>]
+    member b.CustomPool2 () =
+        let sizeIdx = int b.Size
+        let sparsityIdx = int b.Sparsity
+        let sliceSet = customPool2SliceSets[sizeIdx][sparsityIdx]
         
         let mutable acc = 0
         
@@ -396,6 +429,10 @@ let profile (version: string) loopCount =
     | "custompool" ->
         for _ in 1 .. loopCount do
             result <- result + b.CustomPool()
+            
+    | "custompool2" ->
+        for _ in 1 .. loopCount do
+            result <- result + b.CustomPool2()
             
     | unknownVersion -> failwith $"Unknown version: {unknownVersion}" 
         

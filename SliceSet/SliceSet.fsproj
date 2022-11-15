@@ -14,8 +14,10 @@
         <Compile Include="EagerRangeEval.fs" />
         <Compile Include="CustomSeries.fs" />
         <Compile Include="Branchless.fs" />
-        <Compile Include="CustomPool.fs" />
         <Compile Include="ArrayPool.fs" />
+        <Compile Include="CustomPool.fs" />
+        <Compile Include="CustomPool2.fs" />
+        <Compile Include="GroupIntersect.fs" />
     </ItemGroup>
 
 </Project>

@@ -66,8 +66,8 @@ module Series =
         else
             let mutable aIdx = 0
             let mutable bIdx = 0
-            let mutable aRange = a[aIdx]
-            let mutable bRange = b[bIdx]
+            let mutable aRange = Unchecked.defaultof<_>
+            let mutable bRange = Unchecked.defaultof<_>
             let mutable result = create (Math.Max (a.Length, b.Length))
             while aIdx < a.Length && bIdx < b.Length do
                 aRange <- a[aIdx]
