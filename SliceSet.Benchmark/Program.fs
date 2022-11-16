@@ -20,11 +20,14 @@ type Sparsity =
     | ``10%`` = 2
     
 
-[<MemoryDiagnoser>]
+// [<MemoryDiagnoser>]
 [<HardwareCounters(
-    HardwareCounter.BranchMispredictions,
-    HardwareCounter.BranchInstructions,
-    HardwareCounter.CacheMisses)>]
+    // HardwareCounter.BranchMispredictions,
+    // HardwareCounter.BranchInstructions,
+    // HardwareCounter.CacheMisses,
+    HardwareCounter.TotalCycles,
+    HardwareCounter.TotalIssues,
+    HardwareCounter.InstructionRetired)>]
 [<DisassemblyDiagnoser(printSource=true, exportCombinedDisassemblyReport=true, exportHtml=true, exportGithubMarkdown=true, printInstructionAddresses=true, maxDepth=3)>]
 type Benchmarks () =
 
@@ -158,8 +161,9 @@ type Benchmarks () =
     [<Params(ProductCount.``800``)>]
     member val Size = ProductCount.``800`` with get, set
     
-    [<Params(Sparsity.``0.1%``, Sparsity.``1.0%``, Sparsity.``10%``)>]
-    member val Sparsity = Sparsity.``0.1%`` with get, set
+    // [<Params(Sparsity.``0.1%``, Sparsity.``1.0%``, Sparsity.``10%``)>]
+    [<Params(Sparsity.``10%``)>]
+    member val Sparsity = Sparsity.``10%`` with get, set
       
     // [<Benchmark>]
     member b.NaiveFilter () =

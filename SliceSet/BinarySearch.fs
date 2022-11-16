@@ -1,4 +1,4 @@
-﻿namespace SliceSet.AltLoop
+﻿namespace SliceSet.BinarySearch
 
 open System
 open System.Buffers
@@ -18,6 +18,35 @@ type Range<[<Measure>] 'Measure> =
 type Series<[<Measure>] 'Measure> = Range<'Measure>[]
 
 module Series =
+    
+    module private Helpers =
+        
+        let startSeek (start: int<'Measure>) (ranges: Range<'Measure>[]) =
+            let mutable l = 0
+            let mutable r = ranges.Length
+
+            while l < r do
+                let m = (l + r) / 2
+                if ranges[m].Start < start then
+                    l <- m + 1
+                else
+                    r <- m
+
+            l
+
+        let boundSeek (bound: int<'Measure>) (ranges: Range<'Measure>[]) =
+            let mutable l = 0
+            let mutable r = ranges.Length
+
+            while l < r do
+                let m = (l + r) / 2
+                if ranges[m].Bound < bound then
+                    l <- m + 1
+                else
+                    r <- m
+
+            l
+    
     
     let all (length: int) =
         [| { Start = 0<_>; Bound = length * 1<_> } |]
@@ -41,26 +70,25 @@ module Series =
                 aRange <- a[aIdx]
                 bRange <- b[bIdx]
                 
-                while bRange.Bound <= aRange.Start && bIdx < b.Length - 1 do
-                    bIdx <- bIdx + 1
-                    bRange <- b[bIdx]
-                    
-                while aRange.Bound <= bRange.Start && aIdx < a.Length - 1 do
-                    aIdx <- aIdx + 1
-                    aRange <- a[aIdx]
-                
-                if aRange.Start < bRange.Bound then
+                while aRange.Start < bRange.Bound && bRange.Start < aRange.Bound do
                             
                     let newStart = Math.max (aRange.Start, bRange.Start)
                     let newBound = Math.min (aRange.Bound, bRange.Bound)
                     let newRange = { Start = newStart; Bound = newBound }
                     resultAcc[resultIdx] <- newRange
                     resultIdx <- resultIdx + 1
-                        
-                if aRange.Bound < bRange.Bound then
-                    aIdx <- aIdx + 1
-                else
-                    bIdx <- bIdx + 1
+                    
+                    if aRange.Bound < bRange.Bound then
+                        aIdx <- aIdx + 1
+                    else
+                        bIdx <- bIdx + 1
+                    
+                    
+                if bRange.Bound <= aRange.Start then
+                    bIdx <- Helpers.boundSeek aRange.Start b
+                    
+                if aRange.Bound <= bRange.Start then
+                    aIdx <- Helpers.boundSeek bRange.Start a
             
             
             // Copy the final results
