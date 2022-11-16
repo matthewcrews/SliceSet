@@ -18,6 +18,7 @@
         <Compile Include="CustomPool.fs" />
         <Compile Include="CustomPool2.fs" />
         <Compile Include="GroupIntersect.fs" />
+        <Compile Include="AltLoop.fs" />
     </ItemGroup>
 
 </Project>
