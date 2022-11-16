@@ -64,24 +64,46 @@ module Series =
             ArrayPool.Shared.Return (resultAcc, false)
             result
             
-    let intersectAll (seriesGroup: Series<'Measure>[]) (seriesCount: int): Series<'Measure> =
-        if seriesGroup |> Array.exists (fun s -> s.Length = 0) then
+    module Span =
+        
+        let inline exists ([<InlineIfLambda>] f) (s: Span<'T>) =
+            let mutable result = false
+            let mutable i = 0
+            while i < s.Length && (not result) do
+                result <- f s[i]
+                i <- i + 1
+                
+            result
+            
+            
+        let inline sumBy ([<InlineIfLambda>] f) (s: Span<'T>) =
+            let mutable acc = LanguagePrimitives.GenericZero
+            let mutable i = 0
+            
+            for x in s do
+                acc <- acc + (f x)
+                
+            acc
+            
+            
+    let intersectAll (seriesGroup: Span<Series<'Measure>>) : Series<'Measure> =
+        if Span.exists (fun (s: Series<_>) -> s.Length = 0) seriesGroup then
             Array.empty
             
         else
-            let resultLength =
-                seriesGroup
-                |> Array.sumBy (fun s -> s.Length)
-            let resultAcc : Range<'Measure>[] = ArrayPool.Shared.Rent resultLength
+            let resultLength = Span.sumBy (fun (s: Series<_>) -> s.Length) seriesGroup
+            let resultAccArr : Range<'Measure>[] = ArrayPool.Shared.Rent resultLength
+            let resultAcc = resultAccArr.AsSpan()
             let mutable resultIdx = 0
             let mutable progressing = true
             
-            let curIndexes : int[] = ArrayPool.Shared.Rent seriesCount
+            let curIndexesArr : int[] = ArrayPool.Shared.Rent seriesGroup.Length
+            let curIndexes = curIndexesArr.AsSpan (0, seriesGroup.Length)
             let mutable curStart = LanguagePrimitives.Int32WithMeasure<'Measure> 0
             let mutable curBound = LanguagePrimitives.Int32WithMeasure<'Measure> Int32.MaxValue
                         
             // Setup the current Indexes, Starts, and Bounds
-            for i in 0 .. seriesCount - 1 do
+            for i in 0 .. seriesGroup.Length - 1 do
                 curIndexes[i] <- 0
                 let range = seriesGroup[i][0]
                 if range.Start > curStart then
@@ -99,7 +121,7 @@ module Series =
                         
                 // Iterate through all of the ranges and move the ones forward
                 // which are at the current Bound
-                for i in 0 .. seriesCount - 1 do
+                for i in 0 .. seriesGroup.Length - 1 do
                     let series = seriesGroup[i]
                     let range = series[curIndexes[i]]
                     if range.Bound = curBound then
@@ -110,27 +132,28 @@ module Series =
                             
                         
                 // Recompute the curStart and curBound
-                curStart <- 0<_>
-                for i in 0 .. seriesCount - 1 do
-                    let series = seriesGroup[i]
-                    let range = series[curIndexes[i]]
-                    if range.Start > curStart then
-                        curStart <- range.Start
-                
-                curBound <- LanguagePrimitives.Int32WithMeasure<'Measure> Int32.MaxValue
-                for i in 0 .. seriesCount - 1 do
-                    let series = seriesGroup[i]
-                    let range = series[curIndexes[i]]
-                    if range.Bound < curBound then
-                        curBound <- range.Bound
-                
+                if progressing then
+                    curStart <- 0<_>
+                    curBound <- LanguagePrimitives.Int32WithMeasure<'Measure> Int32.MaxValue
+                    for i in 0 .. seriesGroup.Length - 1 do
+                        let series = seriesGroup[i]
+                        let curIndex = curIndexes[i]
+                        let curRange = series[curIndex]
+                        if curRange.Start > curStart then
+                            curStart <- curRange.Start
+                            
+                        if curRange.Bound < curBound then
+                            curBound <- curRange.Bound
                         
             // Copy the final results
-            let result = GC.AllocateUninitializedArray resultIdx
-            Array.Copy (resultAcc, result, resultIdx)
-            // Return the rented array
-            ArrayPool.Shared.Return (resultAcc, false)
-            result
+            let resultArr = GC.AllocateUninitializedArray resultIdx
+            let result = resultArr.AsSpan()
+            resultAcc.Slice(0, resultIdx).CopyTo result
+            // Return the rented arrays
+            ArrayPool.Shared.Return (resultAccArr, false)
+            ArrayPool.Shared.Return (curIndexesArr, false)
+            // Return result array
+            resultArr
 
 
 type ValueIndex<'T> =
@@ -296,7 +319,7 @@ type SliceSet3D<'a, 'b, 'c when 'a : equality and 'b : equality and 'c : equalit
             seriesGroup[1] <- aSeries
             seriesGroup[2] <- bSeries
             
-            let newKeyRanges = Series.intersectAll seriesGroup 3
+            let newKeyRanges = Series.intersectAll (seriesGroup.AsSpan(0, 3))
             ArrayPool.Shared.Return (seriesGroup, false)
                         
             SliceSet (newKeyRanges, cIndex)
@@ -322,7 +345,7 @@ type SliceSet3D<'a, 'b, 'c when 'a : equality and 'b : equality and 'c : equalit
             seriesGroup[1] <- aSeries
             seriesGroup[2] <- cSeries
             
-            let newKeyRanges = Series.intersectAll seriesGroup 3
+            let newKeyRanges = Series.intersectAll (seriesGroup.AsSpan(0, 3))
             ArrayPool.Shared.Return (seriesGroup, false)
             
             SliceSet (newKeyRanges, bIndex)
@@ -347,7 +370,7 @@ type SliceSet3D<'a, 'b, 'c when 'a : equality and 'b : equality and 'c : equalit
             seriesGroup[1] <- bSeries
             seriesGroup[2] <- cSeries
             
-            let newKeyRanges = Series.intersectAll seriesGroup 3
+            let newKeyRanges = Series.intersectAll (seriesGroup.AsSpan(0, 3))
             ArrayPool.Shared.Return (seriesGroup, false)
             
             SliceSet (newKeyRanges, aIndex)
