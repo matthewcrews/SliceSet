@@ -117,7 +117,7 @@ let altLoopSliceSets =
    
 let binarySearchSliceSets =
     dataSets
-    |> Array.map GroupIntersect.SliceSet3D
+    |> Array.map BinarySearch.SliceSet3D
     
     
 [<Test>]

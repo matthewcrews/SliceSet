@@ -20,6 +20,7 @@
         <Compile Include="GroupIntersect.fs" />
         <Compile Include="BinarySearch.fs" />
         <Compile Include="AltLoop.fs" />
+        <Compile Include="SkipIndex.fs" />
     </ItemGroup>
 
 </Project>

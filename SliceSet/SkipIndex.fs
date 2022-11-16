@@ -1,4 +1,4 @@
-﻿namespace SliceSet.BinarySearch
+﻿namespace SliceSet.SkipIndex
 
 open System
 open System.Buffers
@@ -15,91 +15,105 @@ type Range<[<Measure>] 'Measure> =
         Bound : int<'Measure>
     }
      
-type Series<[<Measure>] 'Measure> = Range<'Measure>[]
+[<Struct>]
+type Series<[<Measure>] 'Measure> =
+    {
+        Skips : int<'Measure>[]
+        Ranges : Range<'Measure>[]
+    }
 
 module Series =
     
-    module private Helpers =
-        
-        let startSeek (initialL: int) (start: int<'Measure>) (ranges: Range<'Measure>[]) =
-            let mutable l = initialL
-            let mutable r = ranges.Length
-
-            while l < r do
-                let m = (l + r) / 2
-                if ranges[m].Start < start then
-                    l <- m + 1
-                else
-                    r <- m
-
-            l
-
-        let boundSeek (initialL: int) (bound: int<'Measure>) (ranges: Range<'Measure>[]) =
-            let mutable l = initialL
-            let mutable r = ranges.Length
-
-            while l < r do
-                let m = (l + r) / 2
-                if ranges[m].Bound < bound then
-                    l <- m + 1
-                else
-                    r <- m
-
-            l
-    
-    
     let all (length: int) =
-        [| { Start = 0<_>; Bound = length * 1<_> } |]
+        let ranges = [| { Start = 0<_>; Bound = length * 1<_> } |]
+        let skips = [|length * 1<_> |]
+        {
+            Skips = skips
+            Ranges = ranges
+        }
     
     let empty<[<Measure>] 'Measure> =
-        [| { Start = LanguagePrimitives.Int32WithMeasure<'Measure> 0; Bound = LanguagePrimitives.Int32WithMeasure<'Measure> 0 } |]
+        let ranges = [| { Start = LanguagePrimitives.Int32WithMeasure<'Measure> 0; Bound = LanguagePrimitives.Int32WithMeasure<'Measure> 0 } |]
+        let skips = [| LanguagePrimitives.Int32WithMeasure<'Measure> 0 |]
+        {
+            Skips = skips
+            Ranges = ranges
+        }
+    
+    let findFirstIndexForBound (curIdx: int) (boundTarget: int<_>)  (series: Series<'Measure>) =
+        let ranges = series.Ranges
+        let skipBounds = series.Skips
+        let mutable resultIdx = curIdx
+        let mutable skipIdx = resultIdx >>> 3
+
+        if skipBounds[skipIdx] <= boundTarget then
+            while skipIdx < skipBounds.Length - 1 && skipBounds[skipIdx] <= boundTarget do
+                skipIdx <- skipIdx + 1
+                
+            resultIdx <- skipIdx <<< 3
+            
+        while resultIdx < ranges.Length - 1 && ranges[resultIdx].Bound <= boundTarget do
+            resultIdx <- resultIdx + 1
+        
+        resultIdx
+    
     
     let intersect (a: Series<'Measure>) (b: Series<'Measure>) : Series<'Measure> =
-        if a.Length = 0 || b.Length = 0 then
-            Array.empty
+        if a.Ranges.Length = 0 || b.Ranges.Length = 0 then
+            empty
             
         else
-            let resultAcc = ArrayPool.Shared.Rent (a.Length + b.Length)
+            let resultRangesAcc = ArrayPool.Shared.Rent (a.Ranges.Length + b.Ranges.Length)
+            let resultSkipsAcc = ArrayPool.Shared.Rent (a.Ranges.Length + b.Ranges.Length)
             let mutable aIdx = 0
             let mutable bIdx = 0
             let mutable resultIdx = 0
-            let mutable isProgressing = true
+            let aRanges = a.Ranges
+            let aSkipBounds = a.Skips
+            let bRanges = b.Ranges
+            let bSkipBounds = b.Skips
             
-            while isProgressing do
-                
-                while
-                    isProgressing &&
-                    a[aIdx].Start < b[bIdx].Bound &&
-                    b[bIdx].Start < a[aIdx].Bound do
-                    
-                    let newStart = Math.max (a[aIdx].Start, b[bIdx].Start)
-                    let newBound = Math.min (a[aIdx].Bound, b[bIdx].Bound)
+            while aIdx < aRanges.Length && bIdx < bRanges.Length do
+                // Check if B is behind A and seek forward if it is
+                if bRanges[bIdx].Bound <= aRanges[aIdx].Start then
+                    bIdx <- findFirstIndexForBound bIdx aRanges[aIdx].Start b
+
+                // Check if A is behind B and seek forward if necessary
+                if aRanges[aIdx].Bound <= bRanges[bIdx].Start then
+                    aIdx <- findFirstIndexForBound aIdx bRanges[bIdx].Start a
+                                
+                // See if there is overlap and create a Range entry if there is                
+                if aRanges[aIdx].Start < bRanges[bIdx].Bound then
+                    let newStart = Math.max (aRanges[aIdx].Start, bRanges[bIdx].Start)
+                    let newBound = Math.min (aRanges[aIdx].Bound, bRanges[bIdx].Bound)
                     let newRange = { Start = newStart; Bound = newBound }
-                    resultAcc[resultIdx] <- newRange
+                    resultRangesAcc[resultIdx] <- newRange
+                    resultSkipsAcc[resultIdx >>> 3] <- newBound
                     resultIdx <- resultIdx + 1
                     
-                    if a[aIdx].Bound < b[bIdx].Bound then
-                        aIdx <- aIdx + 1
-                        if aIdx >= a.Length then isProgressing <- false
-                    else
-                        bIdx <- bIdx + 1
-                        if bIdx >= b.Length then isProgressing <- false
-                    
-                if isProgressing && b[bIdx].Bound <= a[aIdx].Start then
-                    bIdx <- Helpers.boundSeek bIdx (a[aIdx].Start + 1<_>) b
-                    if bIdx >= b.Length then isProgressing <- false
-                    
-                if isProgressing && a[aIdx].Bound <= b[bIdx].Start then
-                    aIdx <- Helpers.boundSeek aIdx (b[bIdx].Start + 1<_>) a
-                    if aIdx >= a.Length then isProgressing <- false
+                if aRanges[aIdx].Bound < bRanges[bIdx].Bound then
+                    aIdx <- aIdx + 1
+                else
+                    bIdx <- bIdx + 1
             
             
             // Copy the final results
-            let result = GC.AllocateUninitializedArray resultIdx
-            Array.Copy (resultAcc, result, resultIdx)
+            let resultRanges = GC.AllocateUninitializedArray resultIdx
+            Array.Copy (resultRangesAcc, resultRanges, resultIdx)
+            let resultSkipsCount = (resultIdx + 7) >>> 3
+            let resultSkips = GC.AllocateUninitializedArray resultSkipsCount
+            Array.Copy (resultSkipsAcc, resultSkips, resultSkipsCount)
+            
             // Return the rented array
-            ArrayPool.Shared.Return (resultAcc, false)
-            result
+            ArrayPool.Shared.Return (resultRangesAcc, false)
+            ArrayPool.Shared.Return (resultSkipsAcc, false)
+            
+            // Return the new Series
+            {
+                Skips = resultSkips
+                Ranges = resultRanges
+            }
+
 
 type ValueIndex<'T> =
     {
