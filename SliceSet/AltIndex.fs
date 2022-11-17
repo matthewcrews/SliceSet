@@ -1,4 +1,4 @@
-﻿namespace SliceSet.ArrayPool
+﻿namespace SliceSet.AltIndex
 
 open System
 open System.Buffers
@@ -18,7 +18,7 @@ type Range<[<Measure>] 'Measure> =
 type RangeSeries<[<Measure>] 'Measure> = Range<'Measure>[]
 type PointSeries<[<Measure>] 'Measure> = int<'Measure>[]
 
-[<Struct>]
+[<Struct; RequireQualifiedAccess>]
 type Series<[<Measure>] 'Measure> =
     | Range of ranges: Range<'Measure>[]
     | Point of points: int<'Measure>[]
@@ -27,11 +27,24 @@ type Series<[<Measure>] 'Measure> =
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Series =
     
+    let ofRanges (ranges: Range<_>[]) =
+        
+        if ranges |> Array.exists (fun r -> r.Bound > r.Start + 1<_>) then
+            Series.Range ranges
+        else
+            let points =
+                ranges
+                |> Array.map (fun r -> r.Start)
+            Series.Point points
+        
+    
     let all<[<Measure>] 'Measure> (length: int) =
         Series.Range [| { Start = LanguagePrimitives.Int32WithMeasure<'Measure> 0; Bound = LanguagePrimitives.Int32WithMeasure<'Measure> length } |]
     
+    
     let empty<[<Measure>] 'Measure> : Series<'Measure> =
         Series.Point Array.empty
+        
         
     module private Intersects =
         
@@ -139,10 +152,16 @@ module Series =
                 Array.Copy (resultAcc, result, resultIdx)
                 // Return the rented array
                 ArrayPool.Shared.Return (resultAcc, false)
-                Series.Range result
+                Series.Point result
         
         
-    // let intersect (a: Series<'Measure>) (b: Series<'Measure>) : Series<'Measure> =
+    let intersect (a: Series<'Measure>) (b: Series<'Measure>) : Series<'Measure> =
+        
+        match a, b with
+        | Series.Range a, Series.Range b -> Intersects.rangeAndRange a b
+        | Series.Range a, Series.Point b
+        | Series.Point b, Series.Range a -> Intersects.rangeAndPoint a b
+        | Series.Point a, Series.Point b -> Intersects.pointAndPoint a b
         
 
 type ValueIndex<'T> =
@@ -193,7 +212,8 @@ module ValueIndex =
             ranges
             |> Seq.map (fun (KeyValue (value, ranges)) ->
                 let rangeArray = ranges.ToArray()
-                KeyValuePair (value, rangeArray))
+                let newSeries = Series.ofRanges rangeArray
+                KeyValuePair (value, newSeries))
             |> Dictionary
         
         {
@@ -203,13 +223,13 @@ module ValueIndex =
 
   
 [<Struct>]
-type SliceSetEnumerator<'T> =
+type SliceSetRangeEnumerator<'T> =
     private {
         mutable CurKeyRangeIdx : int
         mutable CurValueKey : ValueKey
         mutable CurValueKeyBound : ValueKey
         mutable CurValue : 'T
-        KeyRanges : Series<Units.ValueKey>
+        KeyRanges : RangeSeries<Units.ValueKey>
         Values : Bar<Units.ValueKey, 'T>
     }
     member e.MoveNext () =
@@ -240,7 +260,35 @@ type SliceSetEnumerator<'T> =
             raise (InvalidOperationException "Enumeration has not started. Call MoveNext.")
         else
             e.CurValue
-        
+            
+[<Struct>]
+type SliceSetPointEnumerator<'T> =
+    private {
+        mutable CurKey : int
+        mutable CurValue : 'T
+        Points : PointSeries<Units.ValueKey>
+        Values : Bar<Units.ValueKey, 'T>
+    }
+    member e.MoveNext () =
+        e.CurKey <- e.CurKey + 1
+        if e.CurKey < e.Points.Length then
+            e.CurValue <- e.Values[e.Points[e.CurKey]]
+            true
+        else
+            false
+            
+    member e.Current : 'T =
+        if e.CurKey < 0 then
+            raise (InvalidOperationException "Enumeration has not started. Call MoveNext.")
+        else
+            e.CurValue
+       
+[<AbstractClass>]
+type SliceSetEnumerator<'T> () =
+    abstract member MoveNext : unit -> bool
+    abstract member Current : 'T
+            
+            
 [<Struct>]
 type SliceSet<'a when 'a : equality>(
     keyRanges: Series<Units.ValueKey>,
@@ -248,14 +296,32 @@ type SliceSet<'a when 'a : equality>(
     ) =
     
     member _.GetEnumerator () =
-        {
-            CurKeyRangeIdx = 0
-            CurValueKey = -1<_>
-            CurValueKeyBound = 0<_>
-            CurValue = Unchecked.defaultof<'a>
-            KeyRanges = keyRanges
-            Values = index.Values
-        }
+        match keyRanges with
+        | Series.Range ranges ->
+            let mutable s = {
+                CurKeyRangeIdx = 0
+                CurValueKey = -1<_>
+                CurValueKeyBound = 0<_>
+                CurValue = Unchecked.defaultof<'a>
+                KeyRanges = ranges
+                Values = index.Values
+            }
+            let e = { new SliceSetEnumerator<_>() with
+                        member x.MoveNext () = s.MoveNext ()
+                        member x.Current = s.Current }
+            e
+            
+        | Series.Point points ->
+            let mutable s = {
+                CurKey = -1
+                CurValue = Unchecked.defaultof<'a>
+                Points = points
+                Values = index.Values
+            }
+            let e = { new SliceSetEnumerator<_>() with
+                        member x.MoveNext () = s.MoveNext ()
+                        member x.Current = s.Current }
+            e
         
     member s.AsSeq () =
         let mutable e = s.GetEnumerator()
