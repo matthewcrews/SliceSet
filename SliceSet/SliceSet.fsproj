@@ -21,6 +21,11 @@
         <Compile Include="BinarySearch.fs" />
         <Compile Include="AltLoop.fs" />
         <Compile Include="SkipIndex.fs" />
+        <Compile Include="AltIndex.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Update="FSharp.Core" Version="6.0.4" />
     </ItemGroup>
 
 </Project>

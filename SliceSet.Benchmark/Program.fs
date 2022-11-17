@@ -13,6 +13,7 @@ type ProductCount =
     | ``200`` = 1
     | ``400`` = 2
     | ``800`` = 3
+    | ``1600`` = 4
     
 type Sparsity =
     | ``0.1%`` = 0
@@ -40,6 +41,7 @@ type Benchmarks () =
             ProductCount.``200``
             ProductCount.``400``
             ProductCount.``800``
+            ProductCount.``1600``
         |]
         
     let productCountValues =
@@ -48,6 +50,7 @@ type Benchmarks () =
             200
             400
             800
+            1600
         |]
 
     let sparsities =
@@ -161,13 +164,17 @@ type Benchmarks () =
         dataSets
         |> Array.map (Array.map BinarySearch.SliceSet3D)
     
-    // [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``)>]
-    [<Params(ProductCount.``800``)>]
+    let skipIndexSliceSets =
+        dataSets
+        |> Array.map (Array.map SkipIndex.SliceSet3D)
+    
+    [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``)>]
+    // [<Params(ProductCount.``800``)>]
     member val Size = ProductCount.``800`` with get, set
     
-    [<Params(Sparsity.``0.1%``, Sparsity.``1.0%``, Sparsity.``10%``)>]
-    // [<Params(Sparsity.``10%``)>]
-    member val Sparsity = Sparsity.``10%`` with get, set
+    // [<Params(Sparsity.``0.1%``, Sparsity.``1.0%``, Sparsity.``10%``)>]
+    [<Params(Sparsity.``0.1%``)>]
+    member val Sparsity = Sparsity.``0.1%`` with get, set
       
     // [<Benchmark>]
     member b.NaiveFilter () =
@@ -426,7 +433,7 @@ type Benchmarks () =
         acc 
 
 
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.AltLoop () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -454,11 +461,39 @@ type Benchmarks () =
 
         acc 
 
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.BinarySearch () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
         let sliceSet = binarySearchSliceSets[sizeIdx][sparsityIdx]
+        
+        let mutable acc = 0
+        
+        let productSupplierSearch = productSupplierSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, supplier in productSupplierSearch do
+            for customer in sliceSet[product, supplier, All] do
+                acc <- acc + (int customer)
+                
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, customer in productCustomerSearches do
+            for supplier in sliceSet[product, All, customer] do
+                acc <- acc + (int supplier)
+                
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            for product in sliceSet[All, supplier, customer] do
+                acc <- acc + (int product)
+
+        acc 
+
+    [<Benchmark>]
+    member b.SkipIndex () =
+        let sizeIdx = int b.Size
+        let sparsityIdx = int b.Sparsity
+        let sliceSet = skipIndexSliceSets[sizeIdx][sparsityIdx]
         
         let mutable acc = 0
         
@@ -547,6 +582,10 @@ let profile (version: string) loopCount =
     | "binarysearch" ->
         for _ in 1 .. loopCount do
             result <- result + b.BinarySearch()
+            
+    | "skipindex" ->
+        for _ in 1 .. loopCount do
+            result <- result + b.SkipIndex()
             
     | unknownVersion -> failwith $"Unknown version: {unknownVersion}" 
         

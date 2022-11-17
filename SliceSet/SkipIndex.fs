@@ -14,6 +14,17 @@ type Range<[<Measure>] 'Measure> =
         // This is the EXCLUSIVE upper bound
         Bound : int<'Measure>
     }
+    
+module Range =
+    
+    let inline create start bound =
+        // if start > bound then
+        //     invalidArg (nameof bound) "Cannot have a Bound less than the Start"
+            
+        {
+            Start = start
+            Bound = bound
+        }
      
 [<Struct>]
 type Series<[<Measure>] 'Measure> =
@@ -26,11 +37,11 @@ module Series =
     
     let ofRanges (ranges: Range<_>[]) =
         let skipValues = Queue()
-        let mutable skipIdx = 8
+        let mutable skipIdx = 32
         
         while skipIdx < ranges.Length do
             skipValues.Enqueue ranges[skipIdx].Bound
-            skipIdx <- skipIdx + 8
+            skipIdx <- skipIdx + 32
     
         skipValues.Enqueue ranges[ranges.Length - 1].Bound
         
@@ -58,17 +69,17 @@ module Series =
             Ranges = ranges
         }
     
-    let findFirstIndexForBound (curIdx: int) (boundTarget: int<_>)  (series: Series<'Measure>) =
+    let inline findFirstIndexForBound (curIdx: int) (boundTarget: int<_>)  (series: Series<'Measure>) =
         let ranges = series.Ranges
         let skipBounds = series.Skips
         let mutable resultIdx = curIdx
-        let mutable skipIdx = resultIdx >>> 3
+        let mutable skipIdx = resultIdx >>> 5
 
         if skipBounds[skipIdx] <= boundTarget then
             while skipIdx < skipBounds.Length - 1 && skipBounds[skipIdx] <= boundTarget do
                 skipIdx <- skipIdx + 1
                 
-            resultIdx <- skipIdx <<< 3
+            resultIdx <- skipIdx <<< 5
             
         while resultIdx < ranges.Length - 1 && ranges[resultIdx].Bound <= boundTarget do
             resultIdx <- resultIdx + 1
@@ -87,9 +98,7 @@ module Series =
             let mutable bIdx = 0
             let mutable resultIdx = 0
             let aRanges = a.Ranges
-            let aSkipBounds = a.Skips
             let bRanges = b.Ranges
-            let bSkipBounds = b.Skips
             
             while aIdx < aRanges.Length && bIdx < bRanges.Length do
                 // Check if B is behind A and seek forward if it is
@@ -101,10 +110,10 @@ module Series =
                     aIdx <- findFirstIndexForBound aIdx bRanges[bIdx].Start a
                                 
                 // See if there is overlap and create a Range entry if there is                
-                if aRanges[aIdx].Start < bRanges[bIdx].Bound then
+                if aRanges[aIdx].Start < bRanges[bIdx].Bound && aRanges[aIdx].Bound > bRanges[bIdx].Start then
                     let newStart = Math.max (aRanges[aIdx].Start, bRanges[bIdx].Start)
                     let newBound = Math.min (aRanges[aIdx].Bound, bRanges[bIdx].Bound)
-                    let newRange = { Start = newStart; Bound = newBound }
+                    let newRange = Range.create newStart newBound
                     resultRangesAcc[resultIdx] <- newRange
                     resultSkipsAcc[resultIdx >>> 3] <- newBound
                     resultIdx <- resultIdx + 1
@@ -118,7 +127,7 @@ module Series =
             // Copy the final results
             let resultRanges = GC.AllocateUninitializedArray resultIdx
             Array.Copy (resultRangesAcc, resultRanges, resultIdx)
-            let resultSkipsCount = (resultIdx + 7) >>> 3
+            let resultSkipsCount = (resultIdx + 31) >>> 5
             let resultSkips = GC.AllocateUninitializedArray resultSkipsCount
             Array.Copy (resultSkipsAcc, resultSkips, resultSkipsCount)
             
@@ -155,7 +164,7 @@ module ValueIndex =
                 length <- length + 1<_>
             else
                 // Create the new range
-                let range = { Start = start; Bound = start + length }
+                let range = Range.create start (start + length)
                 // Get the Range queue for the current value
                 if not (ranges.ContainsKey value) then
                     ranges[value] <- Queue()
@@ -169,7 +178,7 @@ module ValueIndex =
 
         // Wrap up the last Range the loop was working on
         // Create the new range
-        let range = { Start = start; Bound = start + length }
+        let range = Range.create start (start + length)
         // Get the Range queue for the current value
         if not (ranges.ContainsKey value) then
             ranges[value] <- Queue()

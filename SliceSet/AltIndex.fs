@@ -1,4 +1,4 @@
-﻿namespace SliceSet.BinarySearch
+﻿namespace SliceSet.ArrayPool
 
 open System
 open System.Buffers
@@ -15,91 +15,135 @@ type Range<[<Measure>] 'Measure> =
         Bound : int<'Measure>
     }
      
-type Series<[<Measure>] 'Measure> = Range<'Measure>[]
+type RangeSeries<[<Measure>] 'Measure> = Range<'Measure>[]
+type PointSeries<[<Measure>] 'Measure> = int<'Measure>[]
 
+[<Struct>]
+type Series<[<Measure>] 'Measure> =
+    | Range of ranges: Range<'Measure>[]
+    | Point of points: int<'Measure>[]
+
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Series =
     
-    module private Helpers =
+    let all<[<Measure>] 'Measure> (length: int) =
+        Series.Range [| { Start = LanguagePrimitives.Int32WithMeasure<'Measure> 0; Bound = LanguagePrimitives.Int32WithMeasure<'Measure> length } |]
+    
+    let empty<[<Measure>] 'Measure> : Series<'Measure> =
+        Series.Point Array.empty
         
-        let startSeek (initialL: int) (start: int<'Measure>) (ranges: Range<'Measure>[]) =
-            let mutable l = initialL
-            let mutable r = ranges.Length
-
-            while l < r do
-                let m = (l + r) / 2
-                if ranges[m].Start < start then
-                    l <- m + 1
-                else
-                    r <- m
-
-            l
-
-        let boundSeek (initialL: int) (bound: int<'Measure>) (ranges: Range<'Measure>[]) =
-            let mutable l = initialL
-            let mutable r = ranges.Length
-
-            while l < r do
-                let m = (l + r) / 2
-                if ranges[m].Bound < bound then
-                    l <- m + 1
-                else
-                    r <- m
-
-            l
-    
-    
-    let all (length: int) =
-        [| { Start = 0<_>; Bound = length * 1<_> } |]
-    
-    let empty<[<Measure>] 'Measure> =
-        [| { Start = LanguagePrimitives.Int32WithMeasure<'Measure> 0; Bound = LanguagePrimitives.Int32WithMeasure<'Measure> 0 } |]
-    
-    let intersect (a: Series<'Measure>) (b: Series<'Measure>) : Series<'Measure> =
-        if a.Length = 0 || b.Length = 0 then
-            Array.empty
-            
-        else
-            let resultAcc = ArrayPool.Shared.Rent (a.Length + b.Length)
-            let mutable aIdx = 0
-            let mutable bIdx = 0
-            let mutable resultIdx = 0
-            let mutable isProgressing = true
-            
-            while isProgressing do
+    module private Intersects =
+        
+        let rangeAndRange<[<Measure>] 'Measure> (a: RangeSeries<'Measure>) (b: RangeSeries<'Measure>) : Series<'Measure> =
+            if a.Length = 0 || b.Length = 0 then
+                empty
                 
-                while
-                    isProgressing &&
-                    a[aIdx].Start < b[bIdx].Bound &&
-                    b[bIdx].Start < a[aIdx].Bound do
-                    
-                    let newStart = Math.max (a[aIdx].Start, b[bIdx].Start)
-                    let newBound = Math.min (a[aIdx].Bound, b[bIdx].Bound)
-                    let newRange = { Start = newStart; Bound = newBound }
-                    resultAcc[resultIdx] <- newRange
-                    resultIdx <- resultIdx + 1
-                    
-                    if a[aIdx].Bound < b[bIdx].Bound then
-                        aIdx <- aIdx + 1
-                        if aIdx >= a.Length then isProgressing <- false
-                    else
+            else
+                let resultAcc = ArrayPool.Shared.Rent (a.Length + b.Length)
+                let mutable aIdx = 0
+                let mutable bIdx = 0
+                let mutable resultIdx = 0
+                let mutable aRange = Unchecked.defaultof<_>
+                let mutable bRange = Unchecked.defaultof<_>
+                
+                while aIdx < a.Length && bIdx < b.Length do
+                    aRange <- a[aIdx]
+                    bRange <- b[bIdx]
+            
+                    if bRange.Bound <= aRange.Start then
                         bIdx <- bIdx + 1
-                        if bIdx >= b.Length then isProgressing <- false
-                    
-                if isProgressing && b[bIdx].Bound <= a[aIdx].Start then
-                    bIdx <- Helpers.boundSeek bIdx (a[aIdx].Start + (LanguagePrimitives.Int32WithMeasure<'Measure> 1)) b
-                    if bIdx >= b.Length then isProgressing <- false
-                    
-                if isProgressing && a[aIdx].Bound <= b[bIdx].Start then
-                    aIdx <- Helpers.boundSeek aIdx (b[bIdx].Start + (LanguagePrimitives.Int32WithMeasure<'Measure> 1)) a
-                    if aIdx >= a.Length then isProgressing <- false
+                    elif aRange.Bound <= bRange.Start then
+                        aIdx <- aIdx + 1
+                    else
+                        let newStart = Math.max (aRange.Start, bRange.Start)
+                        let newBound = Math.min (aRange.Bound, bRange.Bound)
+                        let newRange = { Start = newStart; Bound = newBound }
+                        resultAcc[resultIdx] <- newRange
+                        resultIdx <- resultIdx + 1
+                            
+                        if aRange.Bound < bRange.Bound then
+                            aIdx <- aIdx + 1
+                        else
+                            bIdx <- bIdx + 1
+                            
+                // Copy the final results
+                let result = GC.AllocateUninitializedArray resultIdx
+                Array.Copy (resultAcc, result, resultIdx)
+                // Return the rented array
+                ArrayPool.Shared.Return (resultAcc, false)
+                Series.Range result
+                
+                
+        let pointAndPoint (a: PointSeries<'Measure>) (b: PointSeries<'Measure>) : Series<'Measure> =
+            if a.Length = 0 || b.Length = 0 then
+                empty
+            else
+                let resultAcc = ArrayPool.Shared.Rent (a.Length + b.Length)
+                let mutable aIdx = 0
+                let mutable bIdx = 0
+                let mutable resultIdx = 0
+                
+                while aIdx < a.Length && bIdx < b.Length do
             
+                    if b[bIdx] < a[aIdx] then
+                        bIdx <- bIdx + 1
+                    elif a[aIdx] < b[bIdx] then
+                        aIdx <- aIdx + 1
+                    else
+                        resultAcc[resultIdx] <- a[aIdx]
+                        resultIdx <- resultIdx + 1
+                            
+                        if a[aIdx] < b[bIdx] then
+                            aIdx <- aIdx + 1
+                        else
+                            bIdx <- bIdx + 1
+                            
+                // Copy the final results
+                let result = GC.AllocateUninitializedArray resultIdx
+                Array.Copy (resultAcc, result, resultIdx)
+                // Return the rented array
+                ArrayPool.Shared.Return (resultAcc, false)
+                Series.Point result
+        
+        
+        let rangeAndPoint<[<Measure>] 'Measure> (a: RangeSeries<'Measure>) (b: PointSeries<'Measure>) : Series<'Measure> =
+            if a.Length = 0 || b.Length = 0 then
+                empty
+                
+            else
+                let resultAcc = ArrayPool.Shared.Rent (a.Length + b.Length)
+                let mutable aIdx = 0
+                let mutable bIdx = 0
+                let mutable resultIdx = 0
+                let mutable aRange = Unchecked.defaultof<_>
+                
+                while aIdx < a.Length && bIdx < b.Length do
+                    aRange <- a[aIdx]
             
-            // Copy the final results
-            let result = GC.AllocateUninitializedArray resultIdx
-            Array.Copy (resultAcc, result, resultIdx)
-            // Return the rented array
-            ArrayPool.Shared.Return (resultAcc, false)
-            result
+                    if b[bIdx] < aRange.Start then
+                        bIdx <- bIdx + 1
+                    elif aRange.Bound <= b[bIdx] then
+                        aIdx <- aIdx + 1
+                    else
+                        resultAcc[resultIdx] <- b[bIdx]
+                        resultIdx <- resultIdx + 1
+                            
+                        if aRange.Bound < b[bIdx] then
+                            aIdx <- aIdx + 1
+                        else
+                            bIdx <- bIdx + 1
+                            
+                // Copy the final results
+                let result = GC.AllocateUninitializedArray resultIdx
+                Array.Copy (resultAcc, result, resultIdx)
+                // Return the rented array
+                ArrayPool.Shared.Return (resultAcc, false)
+                Series.Range result
+        
+        
+    // let intersect (a: Series<'Measure>) (b: Series<'Measure>) : Series<'Measure> =
+        
 
 type ValueIndex<'T> =
     {
