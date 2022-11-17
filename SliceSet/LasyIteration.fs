@@ -1,42 +1,9 @@
-﻿namespace SliceSet
+﻿namespace SliceSet.LazyIteration
 
 open System
 open System.Collections.Generic
-
-
-module Units =
-
-    [<Measure>] type ValueKey
-    [<Measure>] type RangeKey
-
-
-type ValueKey = int<Units.ValueKey>
-type RangeKey = int<Units.RangeKey>
-
-
-[<Struct>]
-type Block<'T>(values: 'T[]) =
-    // WARNING: Public for inlining only
-    member _._values = values
-    member b.Item
-        with inline get k = b._values[k]
-    member inline b.Length = b._values.Length
-    member _.ToArray () = Array.copy values
-    member _.Append (v: 'T) =
-        let newValues = Array.zeroCreate (values.Length + 1)
-        values.CopyTo(newValues, 0)
-        newValues[newValues.Length - 1] <- v
-        Block newValues
-
-type block<'T> = Block<'T>
-
-[<Struct>]
-type Bar<[<Measure>] 'Measure, 'T> (values: 'T[]) =
-    // WARNING: Not for public consumption
-    member _._values = values
-    member b.Item
-        with inline get (k: int<'Measure>) = b._values[int k]
-    member inline b.Length = LanguagePrimitives.Int32WithMeasure<'Measure> b._values.Length
+open SliceSet.Collections
+open SliceSet.Domain
 
 
 [<Struct>]
@@ -136,18 +103,6 @@ module SliceIndex =
             Values = values
         }
 
-[<Struct>]
-type All = All
-
-type Math () =
-    
-    static member inline min (a: int<'Measure>, b: int<'Measure>) =
-        Math.Min (int a, int b)
-        |> LanguagePrimitives.Int32WithMeasure<'Measure>
-
-    static member inline max (a: int<'Measure>, b: int<'Measure>) =
-        Math.Max (int a, int b)
-        |> LanguagePrimitives.Int32WithMeasure<'Measure>
 
 [<Struct>]
 type KeyFilter =
@@ -280,6 +235,8 @@ type ValueIterator<'T> =
             raise (InvalidOperationException "Enumeration has not started. Call MoveNext.")
         else
             x.ValueLookup x.IndexSet.CurValueKey
+
+        
         
 [<Struct>]
 type SliceSet<'a when 'a : equality>(
@@ -295,69 +252,16 @@ type SliceSet<'a when 'a : equality>(
             IndexSet = indexSet
             ValueLookup = lookup
         }
+        
+    member s.AsSeq () =
+        let mutable e = s.GetEnumerator()
+        Seq.unfold (fun _ ->
+            if e.MoveNext() then
+                Some (e.Current, ())
+            else
+                None
+            ) ()
 
-[<Struct>]
-type SliceSet2D<'a, 'b when 'a : equality and 'b : equality>(
-    keyFilter: KeyFilter,
-    aIndex: SliceIndex<'a>,
-    bIndex: SliceIndex<'b>
-    ) =
-    
-    new (values: array<'a * 'b>) =
-        let aValues = values |> Array.map fst
-        let bValues = values |> Array.map snd
-        let aIndex = SliceIndex.create aValues
-        let bIndex = SliceIndex.create bValues
-        let keyFilter = KeyFilter.empty values.Length
-        SliceSet2D (keyFilter, aIndex, bIndex)
-        
-    new (values: list<'a * 'b>) =
-        let values = Array.ofList values
-        SliceSet2D values
-        
-    member _.GetEnumerator () =
-        let indexSet = IndexGroupIterator.ofKeyFilter keyFilter
-        let aValues = aIndex.Values
-        let bValues = bIndex.Values
-        let lookup = fun k -> aValues[k], bValues[k]
-        {
-            IndexSet = indexSet
-            ValueLookup = lookup
-        }
-        
-    member _.Item
-        with get (aKey: 'a, _: All) =
-            match aIndex.StartRange.TryGetValue aKey with
-            | true, startRangeKey ->
-                    let indexRanges = keyFilter.IndexRanges.Append aIndex.Ranges
-                    let nextRanges = keyFilter.NextRanges.Append aIndex.NextRange
-                    let startRanges = keyFilter.StartRanges.Append startRangeKey
-                    let keyFilter : KeyFilter = {
-                        IndexRanges = indexRanges
-                        NextRanges = nextRanges
-                        StartRanges = startRanges
-                    }
-                    SliceSet (keyFilter, bIndex)
-                
-            | false, _ ->
-                raise (KeyNotFoundException "Index does not contain the value")
-            
-    member _.Item
-        with get (_: All, bKey: 'b) =
-            match bIndex.StartRange.TryGetValue bKey with
-            | true, startRangeKey ->
-                    let indexRanges = keyFilter.IndexRanges.Append bIndex.Ranges
-                    let nextRanges = keyFilter.NextRanges.Append bIndex.NextRange
-                    let startRanges = keyFilter.StartRanges.Append startRangeKey
-                    let keyFilter : KeyFilter = {
-                        IndexRanges = indexRanges
-                        NextRanges = nextRanges
-                        StartRanges = startRanges
-                    }
-                    SliceSet (keyFilter, bIndex)
-                
-            | false, _ ->
-                raise (KeyNotFoundException "Index does not contain the value")
             
 [<Struct>]
 type SliceSet3D<'a, 'b, 'c when 'a : equality and 'b : equality and 'c : equality>(
@@ -381,24 +285,13 @@ type SliceSet3D<'a, 'b, 'c when 'a : equality and 'b : equality and 'c : equalit
         let values = Array.ofList values
         SliceSet3D values
         
-    member _.GetEnumerator () =
-            let indexSet = IndexGroupIterator.ofKeyFilter keyFilter
-            let aValues = aIndex.Values
-            let bValues = bIndex.Values
-            let cValues = cIndex.Values
-            let lookup = fun k -> aValues[k], bValues[k], cValues[k]
-            {
-                IndexSet = indexSet
-                ValueLookup = lookup
-            }
-        
     member _.Item
         with get (aKey: 'a, bKey: 'b,  _: All) =
             match aIndex.StartRange.TryGetValue aKey, bIndex.StartRange.TryGetValue bKey with
             | (true, aStartRangeKey), (true, bStartRangeKey) ->
-                let indexRanges = block [|aIndex.Ranges; bIndex.Ranges|]
-                let nextRanges = block [|aIndex.NextRange; bIndex.NextRange|]
-                let startRanges = block [|aStartRangeKey; bStartRangeKey|]
+                let indexRanges = keyFilter.IndexRanges.Concat [|aIndex.Ranges; bIndex.Ranges|]
+                let nextRanges = keyFilter.NextRanges.Concat [|aIndex.NextRange; bIndex.NextRange|]
+                let startRanges = keyFilter.StartRanges.Concat [|aStartRangeKey; bStartRangeKey|]
                 let keyFilter : KeyFilter = {
                     IndexRanges = indexRanges
                     NextRanges = nextRanges
@@ -413,66 +306,32 @@ type SliceSet3D<'a, 'b, 'c when 'a : equality and 'b : equality and 'c : equalit
         with get (aKey: 'a,  _: All, cKey: 'c) =
             match aIndex.StartRange.TryGetValue aKey, cIndex.StartRange.TryGetValue cKey with
             | (true, aStartRangeKey), (true, cStartRangeKey) ->
-                let indexRanges = block [|aIndex.Ranges; cIndex.Ranges|]
-                let nextRanges = block [|aIndex.NextRange; cIndex.NextRange|]
-                let startRanges = block [|aStartRangeKey; cStartRangeKey|]
+                let indexRanges = keyFilter.IndexRanges.Concat [|aIndex.Ranges; cIndex.Ranges|]
+                let nextRanges = keyFilter.NextRanges.Concat [|aIndex.NextRange; cIndex.NextRange|]
+                let startRanges = keyFilter.StartRanges.Concat [|aStartRangeKey; cStartRangeKey|]
                 let keyFilter : KeyFilter = {
                     IndexRanges = indexRanges
                     NextRanges = nextRanges
                     StartRanges = startRanges
                 }
-                SliceSet (keyFilter, cIndex)
+                SliceSet (keyFilter, bIndex)
                 
             | (_, _), (_, _) ->
                 raise (KeyNotFoundException "Index does not contain the value")
             
     member _.Item
-        with get (aKey: 'a, _: All, _: All) =
-            match aIndex.StartRange.TryGetValue aKey with
-            | true, startRangeKey ->
-                let indexRanges = block [|aIndex.Ranges|]
-                let nextRanges = block [|aIndex.NextRange|]
-                let startRanges = block [|startRangeKey|]
+        with get (_: All, bKey: 'b, cKey: 'c) =
+            match bIndex.StartRange.TryGetValue bKey, cIndex.StartRange.TryGetValue cKey with
+            | (true, bStartRangeKey), (true, cStartRangeKey) ->
+                let indexRanges = keyFilter.IndexRanges.Concat [|bIndex.Ranges; cIndex.Ranges|]
+                let nextRanges = keyFilter.NextRanges.Concat [|bIndex.NextRange; cIndex.NextRange|]
+                let startRanges = keyFilter.StartRanges.Concat [|bStartRangeKey; cStartRangeKey|]
                 let keyFilter : KeyFilter = {
                     IndexRanges = indexRanges
                     NextRanges = nextRanges
                     StartRanges = startRanges
                 }
-                SliceSet2D (keyFilter, bIndex, cIndex)
+                SliceSet (keyFilter, aIndex)
                 
-            | false, _ ->
-                raise (KeyNotFoundException "Index does not contain the value")
-                
-    member _.Item
-        with get (_: All, bKey: 'b, _: All) =
-            match bIndex.StartRange.TryGetValue bKey with
-            | true, startRangeKey ->
-                let indexRanges = block [|bIndex.Ranges|]
-                let nextRanges = block [|bIndex.NextRange|]
-                let startRanges = block [|startRangeKey|]
-                let keyFilter : KeyFilter = {
-                    IndexRanges = indexRanges
-                    NextRanges = nextRanges
-                    StartRanges = startRanges
-                }
-                SliceSet2D (keyFilter, aIndex, cIndex)
-                
-            | false, _ ->
-                raise (KeyNotFoundException "Index does not contain the value")
-                
-    member _.Item
-        with get (_: All, _: All, cKey: 'c) =
-            match cIndex.StartRange.TryGetValue cKey with
-            | true, startRangeKey ->
-                let indexRanges = block [|cIndex.Ranges|]
-                let nextRanges = block [|cIndex.NextRange|]
-                let startRanges = block [|startRangeKey|]
-                let keyFilter : KeyFilter = {
-                    IndexRanges = indexRanges
-                    NextRanges = nextRanges
-                    StartRanges = startRanges
-                }
-                SliceSet2D (keyFilter, aIndex, bIndex)
-                
-            | false, _ ->
+            | (_, _), (_, _) ->
                 raise (KeyNotFoundException "Index does not contain the value")

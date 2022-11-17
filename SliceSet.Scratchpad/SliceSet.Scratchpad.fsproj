@@ -12,6 +12,10 @@
     <ItemGroup>
       <ProjectReference Include="..\SliceSet\SliceSet.fsproj" />
     </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Update="FSharp.Core" Version="6.0.4" />
+    </ItemGroup>
     
     
 

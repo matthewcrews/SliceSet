@@ -3,10 +3,29 @@
     <PropertyGroup>
         <TargetFramework>net6.0</TargetFramework>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <Platform>x64</Platform>
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="Library.fs"/>
+        <Compile Include="Collections.fs" />
+        <Compile Include="Domain.fs" />
+        <Compile Include="NaiveFiltering.fs" />
+        <Compile Include="LasyIteration.fs" />
+        <Compile Include="EagerRangeEval.fs" />
+        <Compile Include="CustomSeries.fs" />
+        <Compile Include="Branchless.fs" />
+        <Compile Include="ArrayPool.fs" />
+        <Compile Include="CustomPool.fs" />
+        <Compile Include="CustomPool2.fs" />
+        <Compile Include="GroupIntersect.fs" />
+        <Compile Include="BinarySearch.fs" />
+        <Compile Include="AltLoop.fs" />
+        <Compile Include="SkipIndex.fs" />
+        <Compile Include="AltIndex.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Update="FSharp.Core" Version="6.0.4" />
     </ItemGroup>
 
 </Project>

@@ -6,6 +6,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SliceSet.Scratchpad", "Slic
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SliceSet.Benchmark", "SliceSet.Benchmark\SliceSet.Benchmark.fsproj", "{98B8EED1-70FC-4E27-B077-9CB8C5AC4B41}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SliceSet.Tests", "SliceSet.Tests\SliceSet.Tests.fsproj", "{85274460-50BE-4E71-91F1-36C64768A80A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -24,5 +26,9 @@ Global
 		{98B8EED1-70FC-4E27-B077-9CB8C5AC4B41}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{98B8EED1-70FC-4E27-B077-9CB8C5AC4B41}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{98B8EED1-70FC-4E27-B077-9CB8C5AC4B41}.Release|Any CPU.Build.0 = Release|Any CPU
+		{85274460-50BE-4E71-91F1-36C64768A80A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{85274460-50BE-4E71-91F1-36C64768A80A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{85274460-50BE-4E71-91F1-36C64768A80A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{85274460-50BE-4E71-91F1-36C64768A80A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
