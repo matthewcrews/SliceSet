@@ -24,6 +24,24 @@ type Series<[<Measure>] 'Measure> =
 
 module Series =
     
+    let ofRanges (ranges: Range<_>[]) =
+        let skipValues = Queue()
+        let mutable skipIdx = 8
+        
+        while skipIdx < ranges.Length do
+            skipValues.Enqueue ranges[skipIdx].Bound
+            skipIdx <- skipIdx + 8
+    
+        skipValues.Enqueue ranges[ranges.Length - 1].Bound
+        
+        let skips = skipValues.ToArray()
+        
+        {
+            Skips = skips
+            Ranges = ranges
+        }
+    
+        
     let all (length: int) =
         let ranges = [| { Start = 0<_>; Bound = length * 1<_> } |]
         let skips = [|length * 1<_> |]
@@ -163,7 +181,8 @@ module ValueIndex =
             ranges
             |> Seq.map (fun (KeyValue (value, ranges)) ->
                 let rangeArray = ranges.ToArray()
-                KeyValuePair (value, rangeArray))
+                let series = Series.ofRanges rangeArray
+                KeyValuePair (value, series))
             |> Dictionary
         
         {
@@ -183,8 +202,8 @@ type SliceSetEnumerator<'T> =
         Values : Bar<Units.ValueKey, 'T>
     }
     member e.MoveNext () =
-        if e.CurValueKey < 0<_> && e.CurKeyRangeIdx < e.KeyRanges.Length  then
-            let curRange = e.KeyRanges[e.CurKeyRangeIdx]
+        if e.CurValueKey < 0<_> && e.CurKeyRangeIdx < e.KeyRanges.Ranges.Length  then
+            let curRange = e.KeyRanges.Ranges[e.CurKeyRangeIdx]
             e.CurValueKey <- curRange.Start
             e.CurValueKeyBound <- curRange.Bound
             e.CurValue <- e.Values[e.CurValueKey]
@@ -196,8 +215,8 @@ type SliceSetEnumerator<'T> =
                 true
             else
                 e.CurKeyRangeIdx <- e.CurKeyRangeIdx + 1
-                if e.CurKeyRangeIdx < e.KeyRanges.Length then
-                    let curRange = e.KeyRanges[e.CurKeyRangeIdx]
+                if e.CurKeyRangeIdx < e.KeyRanges.Ranges.Length then
+                    let curRange = e.KeyRanges.Ranges[e.CurKeyRangeIdx]
                     e.CurValueKey <- curRange.Start
                     e.CurValueKeyBound <- curRange.Bound
                     e.CurValue <- e.Values[e.CurValueKey]
