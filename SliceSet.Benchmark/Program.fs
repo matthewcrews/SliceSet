@@ -167,8 +167,12 @@ type Benchmarks () =
     let skipIndexSliceSets =
         dataSets
         |> Array.map (Array.map SkipIndex.SliceSet3D)
+        
+    let altIndexSliceSets =
+        dataSets
+        |> Array.map (Array.map AltIndex.SliceSet3D)
     
-    [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``)>]
+    [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``, ProductCount.``1600``)>]
     // [<Params(ProductCount.``800``)>]
     member val Size = ProductCount.``800`` with get, set
     
@@ -515,6 +519,35 @@ type Benchmarks () =
             for product in sliceSet[All, supplier, customer] do
                 acc <- acc + (int product)
 
+        acc
+        
+        
+    [<Benchmark>]
+    member b.AltIndex () =
+        let sizeIdx = int b.Size
+        let sparsityIdx = int b.Sparsity
+        let sliceSet = altIndexSliceSets[sizeIdx][sparsityIdx]
+        
+        let mutable acc = 0
+        
+        let productSupplierSearch = productSupplierSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, supplier in productSupplierSearch do
+            for customer in sliceSet[product, supplier, All] do
+                acc <- acc + (int customer)
+                
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, customer in productCustomerSearches do
+            for supplier in sliceSet[product, All, customer] do
+                acc <- acc + (int supplier)
+                
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            for product in sliceSet[All, supplier, customer] do
+                acc <- acc + (int product)
+
         acc 
 
 
@@ -586,6 +619,10 @@ let profile (version: string) loopCount =
     | "skipindex" ->
         for _ in 1 .. loopCount do
             result <- result + b.SkipIndex()
+            
+    | "altindex" ->
+        for _ in 1 .. loopCount do
+            result <- result + b.AltIndex()
             
     | unknownVersion -> failwith $"Unknown version: {unknownVersion}" 
         

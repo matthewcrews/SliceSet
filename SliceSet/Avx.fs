@@ -1,11 +1,16 @@
-﻿namespace SliceSet.SkipIndex
+﻿namespace SliceSet.Avx
 
 open System
 open System.Buffers
 open System.Collections.Generic
+open System.Runtime.Intrinsics.X86
+open System.Runtime.Intrinsics
+open Microsoft.FSharp.NativeInterop
 open SliceSet.Collections
 open SliceSet.Domain
 
+#nowarn "9"
+#nowarn "42"
 
 [<Struct>]
 type Range<[<Measure>] 'Measure> =
@@ -14,131 +19,119 @@ type Range<[<Measure>] 'Measure> =
         // This is the EXCLUSIVE upper bound
         Bound : int<'Measure>
     }
-    
-module Range =
-    
-    let inline create start bound =
-        // if start > bound then
-        //     invalidArg (nameof bound) "Cannot have a Bound less than the Start"
-            
-        {
-            Start = start
-            Bound = bound
-        }
      
-[<Struct>]
 type Series<[<Measure>] 'Measure> =
     {
-        Skips : int<'Measure>[]
-        Ranges : Range<'Measure>[]
+        Starts : int<'Measure>[]
+        Bounds : int<'Measure>[]
     }
+    member s.Length = s.Starts.Length
 
 module Series =
     
-    let ofRanges (ranges: Range<_>[]) =
-        let skipValues = Queue()
-        let mutable skipIdx = 8
+    module private Helpers =
         
-        while skipIdx < ranges.Length do
-            skipValues.Enqueue ranges[skipIdx].Bound
-            skipIdx <- skipIdx + 8
+        let inline retype<'T,'U> (x: 'T) : 'U = (# "" x: 'U #)
     
-        skipValues.Enqueue ranges[ranges.Length - 1].Bound
-        
-        let skips = skipValues.ToArray()
-        
-        {
-            Skips = skips
-            Ranges = ranges
-        }
-    
-        
     let all (length: int) =
-        let ranges = [| { Start = 0<_>; Bound = length * 1<_> } |]
-        let skips = [|length * 1<_> |]
         {
-            Skips = skips
-            Ranges = ranges
+            Starts = [| LanguagePrimitives.Int32WithMeasure<'Measure> 0 |]
+            Bounds = [| LanguagePrimitives.Int32WithMeasure<'Measure> length |]
         }
     
-    let empty<[<Measure>] 'Measure> =
-        let ranges = [| { Start = LanguagePrimitives.Int32WithMeasure<'Measure> 0; Bound = LanguagePrimitives.Int32WithMeasure<'Measure> 0 } |]
-        let skips = [| LanguagePrimitives.Int32WithMeasure<'Measure> 0 |]
+    let empty<[<Measure>] 'Measure> : Series<'Measure> =
         {
-            Skips = skips
-            Ranges = ranges
+            Starts = Array.empty
+            Bounds = Array.empty
         }
-    
-    let inline findFirstIndexForBound (curIdx: int) (boundTarget: int<_>)  (series: Series<'Measure>) =
-        let ranges = series.Ranges
-        let skipBounds = series.Skips
-        let mutable resultIdx = curIdx
-        let mutable skipIdx = resultIdx >>> 3
-
-        if skipBounds[skipIdx] <= boundTarget then
-            while skipIdx < skipBounds.Length - 1 && skipBounds[skipIdx] <= boundTarget do
-                skipIdx <- skipIdx + 1
-                
-            resultIdx <- skipIdx <<< 3
-            
-        while resultIdx < ranges.Length - 1 && ranges[resultIdx].Bound <= boundTarget do
-            resultIdx <- resultIdx + 1
-        
-        resultIdx
-    
     
     let intersect (a: Series<'Measure>) (b: Series<'Measure>) : Series<'Measure> =
-        if a.Ranges.Length = 0 || b.Ranges.Length = 0 then
+        if a.Length = 0 || b.Length = 0 then
             empty
             
         else
-            let resultRangesAcc = ArrayPool.Shared.Rent (a.Ranges.Length + b.Ranges.Length)
-            let resultSkipsAcc = ArrayPool.Shared.Rent (a.Ranges.Length + b.Ranges.Length)
+            // Have a be the shorter Series
+            let a, b = if a.Length < b.Length then a, b else b, a
+            
+            let startsAcc = ArrayPool.Shared.Rent (a.Length + b.Length)
+            let boundsAcc = ArrayPool.Shared.Rent (a.Length + b.Length)
+            let aStarts : int[] = Helpers.retype a.Starts
+            let bStarts : int[] = Helpers.retype b.Starts
+            let aBounds : int[] = Helpers.retype a.Bounds
+            let bBounds : int[] = Helpers.retype b.Bounds
+            
             let mutable aIdx = 0
             let mutable bIdx = 0
-            let mutable resultIdx = 0
-            let aRanges = a.Ranges
-            let bRanges = b.Ranges
             
-            while aIdx < aRanges.Length && bIdx < bRanges.Length do
-                // Check if B is behind A and seek forward if it is
-                if bRanges[bIdx].Bound <= aRanges[aIdx].Start then
-                    bIdx <- findFirstIndexForBound bIdx aRanges[aIdx].Start b
-
-                // Check if A is behind B and seek forward if necessary
-                if aRanges[aIdx].Bound <= bRanges[bIdx].Start then
-                    aIdx <- findFirstIndexForBound aIdx bRanges[bIdx].Start a
-                                
-                // See if there is overlap and create a Range entry if there is                
-                if aRanges[aIdx].Start < bRanges[bIdx].Bound && aRanges[aIdx].Bound > bRanges[bIdx].Start then
-                    let newStart = Math.max (aRanges[aIdx].Start, bRanges[bIdx].Start)
-                    let newBound = Math.min (aRanges[aIdx].Bound, bRanges[bIdx].Bound)
-                    let newRange = Range.create newStart newBound
-                    resultRangesAcc[resultIdx] <- newRange
-                    resultSkipsAcc[resultIdx >>> 3] <- newBound
-                    resultIdx <- resultIdx + 1
+            let mutable resultIdx = 0
+            let mutable aRange = Unchecked.defaultof<_>
+            let mutable bRange = Unchecked.defaultof<_>
+            
+            // We only want to use this loop if the b series is long enough
+            // for us to take advantage of the AVX instructions
+            if b.Length > Vector256<int>.Count then
+                let lastBlockIdx = b.Length - (b.Length % Vector256<int>.Count)
+                let aStartsPtr = && aStarts.AsSpan().GetPinnableReference()
+                let aBoundsPtr = && aBounds.AsSpan().GetPinnableReference()
+                let bStartsPtr = && bStarts.AsSpan().GetPinnableReference()
+                let bBoundsPtr = && bBounds.AsSpan().GetPinnableReference()
+                
+                while bIdx < lastBlockIdx && aIdx < a.Length do
                     
-                if aRanges[aIdx].Bound < bRanges[bIdx].Bound then
+                    if bBounds[bIdx + 7] <= aStarts[aIdx] then
+                        bIdx <- bIdx + Vector256<int>.Count
+                    elif aBounds[aIdx] <= bStarts[bIdx] then
+                        aIdx <- aIdx + 1
+                    else
+                        // Broadcast a values into a Vector256
+                        let aStartVec = Avx2.BroadcastScalarToVector256 (NativePtr.add aStartsPtr aIdx)
+                        let aBoundVec = Avx2.BroadcastScalarToVector256 (NativePtr.add aBoundsPtr aIdx)
+                        // Load the b values
+                        let bStartsVec = Avx2.LoadVector256 (NativePtr.add bStartsPtr bIdx)
+                        let bBoundsVec = Avx2.LoadVector256 (NativePtr.add bBoundsPtr bIdx)
+                        
+                        // Compute the possible Starts and Bounds
+                        let newStarts = Avx2.Max (aStartVec, bStartsVec)
+                        let newBounds = Avx2.Min (aBoundVec, bBoundsVec)
+                        // Check if the computer ranges make sense. Negative values are non-overlaps
+                        let boundsGreaterThanStarts = Avx2.CompareGreaterThan (newBounds, newStarts)
+                        
+                        // Move the farther behind series forward
+                        if aBounds[aIdx] < bBounds[bIdx + 7] then
+                            aIdx <- aIdx + 1
+                        else
+                            bIdx <- bIdx + Vector256<int>.Count
+                        
+            // Cleanup loop for end of the b series
+            while aIdx < a.Length && bIdx < b.Length do
+            
+                if bBounds[bIdx] <= aStarts[aIdx] then
+                    bIdx <- bIdx + 1
+                elif aBounds[aIdx] <= bStarts[bIdx] then
                     aIdx <- aIdx + 1
                 else
-                    bIdx <- bIdx + 1
-            
-            
+                    let newStart = Math.max (aStarts[aIdx], bStarts[bIdx])
+                    let newBound = Math.min (aBounds[aIdx], bBounds[bIdx])
+                    startsAcc[resultIdx] <- newStart
+                    boundsAcc[resultIdx] <- newBound
+                    resultIdx <- resultIdx + 1
+                        
+                    if aRange.Bound < bRange.Bound then
+                        aIdx <- aIdx + 1
+                    else
+                        bIdx <- bIdx + 1
+                        
             // Copy the final results
-            let resultRanges = GC.AllocateUninitializedArray resultIdx
-            Array.Copy (resultRangesAcc, resultRanges, resultIdx)
-            let resultSkipsCount = (resultIdx + 7) >>> 3
-            let resultSkips = GC.AllocateUninitializedArray resultSkipsCount
-            Array.Copy (resultSkipsAcc, resultSkips, resultSkipsCount)
-            
+            let resultStarts = GC.AllocateUninitializedArray resultIdx
+            let resultBounds = GC.AllocateUninitializedArray resultIdx
+            Array.Copy (startsAcc, resultStarts, resultIdx)
+            Array.Copy (boundsAcc, resultBounds, resultIdx)
             // Return the rented array
-            ArrayPool.Shared.Return (resultRangesAcc, false)
-            ArrayPool.Shared.Return (resultSkipsAcc, false)
-            
-            // Return the new Series
+            ArrayPool.Shared.Return (startsAcc, false)
+            ArrayPool.Shared.Return (boundsAcc, false)
             {
-                Skips = resultSkips
-                Ranges = resultRanges
+                Starts = resultStarts
+                Bounds = resultBounds
             }
 
 
@@ -164,7 +157,7 @@ module ValueIndex =
                 length <- length + 1<_>
             else
                 // Create the new range
-                let range = Range.create start (start + length)
+                let range = { Start = start; Bound = start + length }
                 // Get the Range queue for the current value
                 if not (ranges.ContainsKey value) then
                     ranges[value] <- Queue()
@@ -178,7 +171,7 @@ module ValueIndex =
 
         // Wrap up the last Range the loop was working on
         // Create the new range
-        let range = Range.create start (start + length)
+        let range = { Start = start; Bound = start + length }
         // Get the Range queue for the current value
         if not (ranges.ContainsKey value) then
             ranges[value] <- Queue()
@@ -190,8 +183,7 @@ module ValueIndex =
             ranges
             |> Seq.map (fun (KeyValue (value, ranges)) ->
                 let rangeArray = ranges.ToArray()
-                let series = Series.ofRanges rangeArray
-                KeyValuePair (value, series))
+                KeyValuePair (value, rangeArray))
             |> Dictionary
         
         {
@@ -211,8 +203,8 @@ type SliceSetEnumerator<'T> =
         Values : Bar<Units.ValueKey, 'T>
     }
     member e.MoveNext () =
-        if e.CurValueKey < 0<_> && e.CurKeyRangeIdx < e.KeyRanges.Ranges.Length  then
-            let curRange = e.KeyRanges.Ranges[e.CurKeyRangeIdx]
+        if e.CurValueKey < 0<_> && e.CurKeyRangeIdx < e.KeyRanges.Length  then
+            let curRange = e.KeyRanges[e.CurKeyRangeIdx]
             e.CurValueKey <- curRange.Start
             e.CurValueKeyBound <- curRange.Bound
             e.CurValue <- e.Values[e.CurValueKey]
@@ -224,8 +216,8 @@ type SliceSetEnumerator<'T> =
                 true
             else
                 e.CurKeyRangeIdx <- e.CurKeyRangeIdx + 1
-                if e.CurKeyRangeIdx < e.KeyRanges.Ranges.Length then
-                    let curRange = e.KeyRanges.Ranges[e.CurKeyRangeIdx]
+                if e.CurKeyRangeIdx < e.KeyRanges.Length then
+                    let curRange = e.KeyRanges[e.CurKeyRangeIdx]
                     e.CurValueKey <- curRange.Start
                     e.CurValueKeyBound <- curRange.Bound
                     e.CurValue <- e.Values[e.CurValueKey]
