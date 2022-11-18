@@ -184,8 +184,8 @@ type Benchmarks () =
         dataSets
         |> Array.map (Array.map DoubleBuffer.SliceSet3D)
     
-    [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``, ProductCount.``1600``)>]
-    // [<Params(ProductCount.``800``)>]
+    // [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``, ProductCount.``1600``)>]
+    [<Params(ProductCount.``1600``)>]
     member val Size = ProductCount.``800`` with get, set
     
     // [<Params(Sparsity.``0.1%``, Sparsity.``1.0%``, Sparsity.``10%``)>]
@@ -193,7 +193,7 @@ type Benchmarks () =
     member val Sparsity = Sparsity.``0.1%`` with get, set
       
       
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.NaiveFilter () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -222,7 +222,7 @@ type Benchmarks () =
         acc
 
     
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.ParallelRanges () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -251,7 +251,7 @@ type Benchmarks () =
         acc
         
     
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.ComputedRanges () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -280,7 +280,7 @@ type Benchmarks () =
         acc
         
         
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.CustomSeries () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -308,6 +308,7 @@ type Benchmarks () =
 
         acc
 
+    
     [<Benchmark>]
     member b.ArrayPool () =
         let sizeIdx = int b.Size
@@ -336,7 +337,8 @@ type Benchmarks () =
 
         acc        
         
-    // [<Benchmark>]
+        
+    [<Benchmark>]
     member b.Branchless () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -364,7 +366,7 @@ type Benchmarks () =
 
         acc
         
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.CustomPool () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -393,7 +395,7 @@ type Benchmarks () =
         acc 
 
     
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.CustomPool2 () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -421,7 +423,7 @@ type Benchmarks () =
 
         acc
         
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.GroupIntersect () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -450,7 +452,7 @@ type Benchmarks () =
         acc 
 
 
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.AltLoop () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -478,7 +480,7 @@ type Benchmarks () =
 
         acc 
 
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.BinarySearch () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -506,7 +508,8 @@ type Benchmarks () =
 
         acc 
 
-    // [<Benchmark>]
+    
+    [<Benchmark>]
     member b.SkipIndex () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -535,7 +538,7 @@ type Benchmarks () =
         acc
         
         
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.AltIndex () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -564,7 +567,7 @@ type Benchmarks () =
         acc
         
         
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.Branchless2 () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -593,7 +596,7 @@ type Benchmarks () =
         acc
         
         
-    // [<Benchmark>]
+    [<Benchmark>]
     member b.SOA () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -723,6 +726,10 @@ let profile (version: string) loopCount =
     | "altindex" ->
         for _ in 1 .. loopCount do
             result <- result + b.AltIndex()
+            
+    | "doublebuffer" ->
+        for _ in 1 .. loopCount do
+            result <- result + b.DoubleBuffer()
             
     | unknownVersion -> failwith $"Unknown version: {unknownVersion}" 
         
