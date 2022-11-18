@@ -171,6 +171,10 @@ type Benchmarks () =
     let altIndexSliceSets =
         dataSets
         |> Array.map (Array.map AltIndex.SliceSet3D)
+        
+    let branchless2SliceSets =
+        dataSets
+        |> Array.map (Array.map Branchless2.SliceSet3D)
     
     [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``, ProductCount.``1600``)>]
     // [<Params(ProductCount.``800``)>]
@@ -493,7 +497,7 @@ type Benchmarks () =
 
         acc 
 
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.SkipIndex () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -522,11 +526,40 @@ type Benchmarks () =
         acc
         
         
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.AltIndex () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
         let sliceSet = altIndexSliceSets[sizeIdx][sparsityIdx]
+        
+        let mutable acc = 0
+        
+        let productSupplierSearch = productSupplierSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, supplier in productSupplierSearch do
+            for customer in sliceSet[product, supplier, All] do
+                acc <- acc + (int customer)
+                
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, customer in productCustomerSearches do
+            for supplier in sliceSet[product, All, customer] do
+                acc <- acc + (int supplier)
+                
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            for product in sliceSet[All, supplier, customer] do
+                acc <- acc + (int product)
+
+        acc
+        
+        
+    [<Benchmark>]
+    member b.Branchless2 () =
+        let sizeIdx = int b.Size
+        let sparsityIdx = int b.Sparsity
+        let sliceSet = branchless2SliceSets[sizeIdx][sparsityIdx]
         
         let mutable acc = 0
         

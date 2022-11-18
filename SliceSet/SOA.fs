@@ -1,16 +1,11 @@
-﻿namespace SliceSet.Avx
+﻿namespace SliceSet.SOA
 
 open System
 open System.Buffers
 open System.Collections.Generic
-open System.Runtime.Intrinsics.X86
-open System.Runtime.Intrinsics
-open Microsoft.FSharp.NativeInterop
 open SliceSet.Collections
 open SliceSet.Domain
 
-#nowarn "9"
-#nowarn "42"
 
 [<Struct>]
 type Range<[<Measure>] 'Measure> =
@@ -20,18 +15,30 @@ type Range<[<Measure>] 'Measure> =
         Bound : int<'Measure>
     }
      
+[<Struct>]
 type Series<[<Measure>] 'Measure> =
     {
         Starts : int<'Measure>[]
         Bounds : int<'Measure>[]
     }
-    member s.Length = s.Starts.Length
+    member inline s.Length = s.Starts.Length
+        
 
 module Series =
     
-    module private Helpers =
-        
-        let inline retype<'T,'U> (x: 'T) : 'U = (# "" x: 'U #)
+    let ofRanges (ranges: Range<'Measure>[]) : Series<'Measure> =
+        let starts =
+            ranges
+            |> Array.map (fun r -> r.Start)
+            
+        let bounds =
+            ranges
+            |> Array.map (fun r -> r.Bound)
+            
+        {
+            Starts = starts
+            Bounds = bounds
+        }
     
     let all (length: int) =
         {
@@ -44,96 +51,50 @@ module Series =
             Starts = Array.empty
             Bounds = Array.empty
         }
-    
+        
     let intersect (a: Series<'Measure>) (b: Series<'Measure>) : Series<'Measure> =
         if a.Length = 0 || b.Length = 0 then
             empty
             
         else
-            // Have a be the shorter Series
-            let a, b = if a.Length < b.Length then a, b else b, a
-            
             let startsAcc = ArrayPool.Shared.Rent (a.Length + b.Length)
             let boundsAcc = ArrayPool.Shared.Rent (a.Length + b.Length)
-            let aStarts : int[] = Helpers.retype a.Starts
-            let bStarts : int[] = Helpers.retype b.Starts
-            let aBounds : int[] = Helpers.retype a.Bounds
-            let bBounds : int[] = Helpers.retype b.Bounds
-            
+            let aStarts = a.Starts
+            let aBounds = a.Bounds
+            let bStarts = b.Starts
+            let bBounds = b.Bounds
             let mutable aIdx = 0
             let mutable bIdx = 0
-            
             let mutable resultIdx = 0
-            let mutable aRange = Unchecked.defaultof<_>
-            let mutable bRange = Unchecked.defaultof<_>
             
-            // We only want to use this loop if the b series is long enough
-            // for us to take advantage of the AVX instructions
-            if b.Length > Vector256<int>.Count then
-                let lastBlockIdx = b.Length - (b.Length % Vector256<int>.Count)
-                let aStartsPtr = && aStarts.AsSpan().GetPinnableReference()
-                let aBoundsPtr = && aBounds.AsSpan().GetPinnableReference()
-                let bStartsPtr = && bStarts.AsSpan().GetPinnableReference()
-                let bBoundsPtr = && bBounds.AsSpan().GetPinnableReference()
-                
-                while bIdx < lastBlockIdx && aIdx < a.Length do
-                    
-                    if bBounds[bIdx + 7] <= aStarts[aIdx] then
-                        bIdx <- bIdx + Vector256<int>.Count
-                    elif aBounds[aIdx] <= bStarts[bIdx] then
-                        aIdx <- aIdx + 1
-                    else
-                        // Broadcast a values into a Vector256
-                        let aStartVec = Avx2.BroadcastScalarToVector256 (NativePtr.add aStartsPtr aIdx)
-                        let aBoundVec = Avx2.BroadcastScalarToVector256 (NativePtr.add aBoundsPtr aIdx)
-                        // Load the b values
-                        let bStartsVec = Avx2.LoadVector256 (NativePtr.add bStartsPtr bIdx)
-                        let bBoundsVec = Avx2.LoadVector256 (NativePtr.add bBoundsPtr bIdx)
-                        
-                        // Compute the possible Starts and Bounds
-                        let newStarts = Avx2.Max (aStartVec, bStartsVec)
-                        let newBounds = Avx2.Min (aBoundVec, bBoundsVec)
-                        // Check if the computed ranges make sense. Negative values are non-overlaps
-                        let boundsGreaterThanStarts = Avx2.CompareGreaterThan (newBounds, newStarts)
-                        
-                        // Move the farther behind series forward
-                        if aBounds[aIdx] < bBounds[bIdx + 7] then
-                            aIdx <- aIdx + 1
-                        else
-                            bIdx <- bIdx + Vector256<int>.Count
-                        
-            // Cleanup loop for end of the b series
             while aIdx < a.Length && bIdx < b.Length do
-            
+        
                 if bBounds[bIdx] <= aStarts[aIdx] then
                     bIdx <- bIdx + 1
                 elif aBounds[aIdx] <= bStarts[bIdx] then
                     aIdx <- aIdx + 1
                 else
-                    let newStart = Math.max (aStarts[aIdx], bStarts[bIdx])
-                    let newBound = Math.min (aBounds[aIdx], bBounds[bIdx])
-                    startsAcc[resultIdx] <- newStart
-                    boundsAcc[resultIdx] <- newBound
+                    startsAcc[resultIdx] <- Math.max (aStarts[aIdx], bStarts[bIdx])
+                    boundsAcc[resultIdx] <- Math.min (aBounds[aIdx], bBounds[bIdx])
                     resultIdx <- resultIdx + 1
                         
-                    if aRange.Bound < bRange.Bound then
+                    if aBounds[aIdx] < bBounds[bIdx] then
                         aIdx <- aIdx + 1
                     else
                         bIdx <- bIdx + 1
                         
             // Copy the final results
-            let resultStarts = GC.AllocateUninitializedArray resultIdx
-            let resultBounds = GC.AllocateUninitializedArray resultIdx
-            Array.Copy (startsAcc, resultStarts, resultIdx)
-            Array.Copy (boundsAcc, resultBounds, resultIdx)
+            let startsResult = GC.AllocateUninitializedArray resultIdx
+            let boundsResult = GC.AllocateUninitializedArray resultIdx
+            Array.Copy (startsAcc, startsResult, resultIdx)
+            Array.Copy (boundsAcc, boundsResult, resultIdx)
             // Return the rented array
             ArrayPool.Shared.Return (startsAcc, false)
             ArrayPool.Shared.Return (boundsAcc, false)
             {
-                Starts = resultStarts
-                Bounds = resultBounds
+                Starts = startsResult
+                Bounds = boundsResult
             }
-
 
 type ValueIndex<'T> =
     {
@@ -183,7 +144,8 @@ module ValueIndex =
             ranges
             |> Seq.map (fun (KeyValue (value, ranges)) ->
                 let rangeArray = ranges.ToArray()
-                KeyValuePair (value, rangeArray))
+                let newSeries = Series.ofRanges rangeArray
+                KeyValuePair (value, newSeries))
             |> Dictionary
         
         {
@@ -204,9 +166,8 @@ type SliceSetEnumerator<'T> =
     }
     member e.MoveNext () =
         if e.CurValueKey < 0<_> && e.CurKeyRangeIdx < e.KeyRanges.Length  then
-            let curRange = e.KeyRanges[e.CurKeyRangeIdx]
-            e.CurValueKey <- curRange.Start
-            e.CurValueKeyBound <- curRange.Bound
+            e.CurValueKey <- e.KeyRanges.Starts[e.CurKeyRangeIdx]
+            e.CurValueKeyBound <- e.KeyRanges.Bounds[e.CurKeyRangeIdx]
             e.CurValue <- e.Values[e.CurValueKey]
             true
         else
@@ -217,9 +178,8 @@ type SliceSetEnumerator<'T> =
             else
                 e.CurKeyRangeIdx <- e.CurKeyRangeIdx + 1
                 if e.CurKeyRangeIdx < e.KeyRanges.Length then
-                    let curRange = e.KeyRanges[e.CurKeyRangeIdx]
-                    e.CurValueKey <- curRange.Start
-                    e.CurValueKeyBound <- curRange.Bound
+                    e.CurValueKey <- e.KeyRanges.Starts[e.CurKeyRangeIdx]
+                    e.CurValueKeyBound <- e.KeyRanges.Bounds[e.CurKeyRangeIdx]
                     e.CurValue <- e.Values[e.CurValueKey]
                     true
                 else

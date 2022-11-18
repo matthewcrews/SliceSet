@@ -22,7 +22,9 @@
         <Compile Include="AltLoop.fs" />
         <Compile Include="SkipIndex.fs" />
         <Compile Include="AltIndex.fs" />
-        <Compile Include="Avx.fs" />
+<!--        <Compile Include="Avx.fs" />-->
+        <Compile Include="Branchless2.fs" />
+        <Compile Include="SOA.fs" />
     </ItemGroup>
 
     <ItemGroup>
