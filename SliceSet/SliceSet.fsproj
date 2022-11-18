@@ -25,6 +25,7 @@
 <!--        <Compile Include="Avx.fs" />-->
         <Compile Include="Branchless2.fs" />
         <Compile Include="SOA.fs" />
+        <Compile Include="DoubleBuffer.fs" />
     </ItemGroup>
 
     <ItemGroup>
