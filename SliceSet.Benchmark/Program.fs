@@ -183,6 +183,10 @@ type Benchmarks () =
     let doubleBufferSliceSets =
         dataSets
         |> Array.map (Array.map DoubleBuffer.SliceSet3D)
+        
+    let avxSliceSets =
+        dataSets
+        |> Array.map (Array.map Avx.SliceSet3D)
     
     // [<Params(ProductCount.``100``, ProductCount.``200``, ProductCount.``400``, ProductCount.``800``, ProductCount.``1600``)>]
     [<Params(ProductCount.``1600``)>]
@@ -193,7 +197,7 @@ type Benchmarks () =
     member val Sparsity = Sparsity.``0.1%`` with get, set
       
       
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.NaiveFilter () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -222,7 +226,7 @@ type Benchmarks () =
         acc
 
     
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.ParallelRanges () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -251,7 +255,7 @@ type Benchmarks () =
         acc
         
     
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.ComputedRanges () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -280,7 +284,7 @@ type Benchmarks () =
         acc
         
         
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.CustomSeries () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -338,7 +342,7 @@ type Benchmarks () =
         acc        
         
         
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.Branchless () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -366,7 +370,7 @@ type Benchmarks () =
 
         acc
         
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.CustomPool () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -395,7 +399,7 @@ type Benchmarks () =
         acc 
 
     
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.CustomPool2 () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -423,7 +427,7 @@ type Benchmarks () =
 
         acc
         
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.GroupIntersect () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -452,7 +456,7 @@ type Benchmarks () =
         acc 
 
 
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.AltLoop () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -480,7 +484,7 @@ type Benchmarks () =
 
         acc 
 
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.BinarySearch () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -509,7 +513,7 @@ type Benchmarks () =
         acc 
 
     
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.SkipIndex () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -538,7 +542,7 @@ type Benchmarks () =
         acc
         
         
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.AltIndex () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -567,7 +571,7 @@ type Benchmarks () =
         acc
         
         
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.Branchless2 () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -596,7 +600,7 @@ type Benchmarks () =
         acc
         
         
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.SOA () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
@@ -625,11 +629,40 @@ type Benchmarks () =
         acc
         
         
-    [<Benchmark>]
+    // [<Benchmark>]
     member b.DoubleBuffer () =
         let sizeIdx = int b.Size
         let sparsityIdx = int b.Sparsity
         let sliceSet = doubleBufferSliceSets[sizeIdx][sparsityIdx]
+        
+        let mutable acc = 0
+        
+        let productSupplierSearch = productSupplierSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, supplier in productSupplierSearch do
+            for customer in sliceSet[product, supplier, All] do
+                acc <- acc + (int customer)
+                
+        let productCustomerSearches = productCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for product, customer in productCustomerSearches do
+            for supplier in sliceSet[product, All, customer] do
+                acc <- acc + (int supplier)
+                
+        let supplierCustomerSearches = supplierCustomerSearchSets[sizeIdx][sparsityIdx]
+        
+        for supplier, customer in supplierCustomerSearches do
+            for product in sliceSet[All, supplier, customer] do
+                acc <- acc + (int product)
+
+        acc
+        
+    
+    [<Benchmark>]
+    member b.Avx () =
+        let sizeIdx = int b.Size
+        let sparsityIdx = int b.Sparsity
+        let sliceSet = avxSliceSets[sizeIdx][sparsityIdx]
         
         let mutable acc = 0
         
@@ -730,6 +763,10 @@ let profile (version: string) loopCount =
     | "doublebuffer" ->
         for _ in 1 .. loopCount do
             result <- result + b.DoubleBuffer()
+            
+    | "avx" ->
+        for _ in 1 .. loopCount do
+            result <- result + b.Avx()
             
     | unknownVersion -> failwith $"Unknown version: {unknownVersion}" 
         
