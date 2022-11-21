@@ -3,6 +3,7 @@
 open System
 open System.Buffers
 open System.Collections.Generic
+open System.Numerics
 open System.Runtime.Intrinsics.X86
 open System.Runtime.Intrinsics
 open Microsoft.FSharp.NativeInterop
@@ -11,6 +12,7 @@ open SliceSet.Domain
 
 #nowarn "9"
 #nowarn "42"
+#nowarn "51"
 
 [<Struct>]
 type Range<[<Measure>] 'Measure> =
@@ -32,6 +34,50 @@ module Series =
     module private Helpers =
         
         let inline retype<'T,'U> (x: 'T) : 'U = (# "" x: 'U #)
+        
+        let leftCompactShuffleMasks : Vector128<byte>[] =
+            // NOTE: Remember x86 is little-endian therefore we need to select
+            // Also note, we are using this with Shuffle, which should be thought
+            // of as a Selector of the elements, not masking elements off.
+            let zero = 0x80_80_80_80 // Zero
+            let elm0 = 0x03_02_01_00 // 0th position
+            let elm1 = 0x07_06_05_04 // 1st position
+            let elm2 = 0x0B_0A_09_08 // 2nd position
+            let elm3 = 0x0F_0E_0D_0C // 3rd position
+            
+            retype [|
+                Vector128.Create (zero, zero, zero, zero) // BitMask Pattern: 0000
+                Vector128.Create (elm0, zero, zero, zero) // BitMask Pattern: 0001
+                Vector128.Create (elm1, zero, zero, zero) // BitMask Pattern: 0010
+                Vector128.Create (elm0, elm1, zero, zero) // BitMask Pattern: 0011
+                Vector128.Create (elm2, zero, zero, zero) // BitMask Pattern: 0100
+                Vector128.Create (elm0, elm2, zero, zero) // BitMask Pattern: 0101
+                Vector128.Create (elm1, elm2, zero, zero) // BitMask Pattern: 0110
+                Vector128.Create (elm0, elm1, elm2, zero) // BitMask Pattern: 0111
+                Vector128.Create (elm3, zero, zero, zero) // BitMask Pattern: 1000
+                Vector128.Create (elm0, elm3, zero, zero) // BitMask Pattern: 1001
+                Vector128.Create (elm1, elm3, zero, zero) // BitMask Pattern: 1010
+                Vector128.Create (elm0, elm1, elm3, zero) // BitMask Pattern: 1011
+                Vector128.Create (elm2, elm3, zero, zero) // BitMask Pattern: 1100
+                Vector128.Create (elm0, elm2, elm3, zero) // BitMask Pattern: 1101
+                Vector128.Create (elm1, elm2, elm3, zero) // BitMask Pattern: 1110
+                Vector128.Create (elm0, elm1, elm2, elm3) // BitMask Pattern: 1111
+            |]
+
+        
+    let ofRanges (ranges: Range<'Measure>[]) : Series<'Measure> =
+        let starts =
+            ranges
+            |> Array.map (fun r -> r.Start)
+            
+        let bounds =
+            ranges
+            |> Array.map (fun r -> r.Bound)
+            
+        {
+            Starts = starts
+            Bounds = bounds
+        }
     
     let all (length: int) =
         {
@@ -53,8 +99,9 @@ module Series =
             // Have a be the shorter Series
             let a, b = if a.Length < b.Length then a, b else b, a
             
-            let startsAcc = ArrayPool.Shared.Rent (a.Length + b.Length)
-            let boundsAcc = ArrayPool.Shared.Rent (a.Length + b.Length)
+            let accStarts = ArrayPool.Shared.Rent (a.Length + b.Length)
+            let accBounds = ArrayPool.Shared.Rent (a.Length + b.Length)
+            // AVX does not play nice with Units of Measure
             let aStarts : int[] = Helpers.retype a.Starts
             let bStarts : int[] = Helpers.retype b.Starts
             let aBounds : int[] = Helpers.retype a.Bounds
@@ -62,76 +109,95 @@ module Series =
             
             let mutable aIdx = 0
             let mutable bIdx = 0
-            
-            let mutable resultIdx = 0
-            let mutable aRange = Unchecked.defaultof<_>
-            let mutable bRange = Unchecked.defaultof<_>
-            
-            // We only want to use this loop if the b series is long enough
-            // for us to take advantage of the AVX instructions
-            if b.Length > Vector256<int>.Count then
-                let lastBlockIdx = b.Length - (b.Length % Vector256<int>.Count)
-                let aStartsPtr = && aStarts.AsSpan().GetPinnableReference()
-                let aBoundsPtr = && aBounds.AsSpan().GetPinnableReference()
+            let mutable accIdx = 0
+
+            // Only want to perform this loop if Avx2 is supported
+            if Avx2.IsSupported then
+                
+                let lastBlockIdx = Vector128<int>.Count * (bStarts.Length / Vector128<int>.Count)
                 let bStartsPtr = && bStarts.AsSpan().GetPinnableReference()
                 let bBoundsPtr = && bBounds.AsSpan().GetPinnableReference()
+                let accStartsPtr = && accStarts.AsSpan().GetPinnableReference()
+                let accBoundsPtr = && accBounds.AsSpan().GetPinnableReference()
                 
-                while bIdx < lastBlockIdx && aIdx < a.Length do
+                while aIdx < aStarts.Length && bIdx < lastBlockIdx do
+
+                    // Load the data into the SIMD registers
+                    let aStartVec = Vector128.Create aStarts[aIdx]
+                    let aBoundVec = Vector128.Create aBounds[aIdx]
+                    let bStartsVec = Avx2.LoadVector128 (NativePtr.add bStartsPtr bIdx)
+                    let bBoundsVec = Avx2.LoadVector128 (NativePtr.add bBoundsPtr bIdx)
                     
-                    if bBounds[bIdx + 7] <= aStarts[aIdx] then
-                        bIdx <- bIdx + Vector256<int>.Count
-                    elif aBounds[aIdx] <= bStarts[bIdx] then
+                    // Compute new Starts and Bounds
+                    let newStarts = Avx2.Max (aStartVec, bStartsVec)
+                    let newBounds = Avx2.Min (aBoundVec, bBoundsVec)
+                    
+                    // Perform comparison to check for valid intervals
+                    let nonNegativeCheck = Avx2.CompareGreaterThan (newBounds, newStarts)
+                    
+                    // Retype so we can use MoveMask
+                    let nonNegativeCheckAsFloat32 : Vector128<float32> = Helpers.retype nonNegativeCheck
+                    
+                    // Compute the MoveMask to lookup Left-Compacting shuffle mask
+                    let moveMask = Avx2.MoveMask nonNegativeCheckAsFloat32
+                    // Lookup the Left-Compacting shuffle mask we will need
+                    let shuffleMask = Helpers.leftCompactShuffleMasks[moveMask]
+                    
+                    // Retype moveMask to use it with PopCount to get number of matches
+                    let moveMask : uint32 = Helpers.retype moveMask
+                    let numberOfMatches = BitOperations.PopCount moveMask
+                    
+                    // Retype newStarts and newBounds for shuffling
+                    let newStartsAsBytes : Vector128<byte> = Helpers.retype newStarts
+                    let newBoundsAsBytes : Vector128<byte> = Helpers.retype newBounds
+                    
+                    // Shuffle the values that we want to keep
+                    let newStartsPacked : Vector128<int> = Helpers.retype (Avx2.Shuffle (newStartsAsBytes, shuffleMask))
+                    let newBoundsPacked : Vector128<int> = Helpers.retype (Avx2.Shuffle (newBoundsAsBytes, shuffleMask))
+                    
+                    // Write the values out to the acc arrays
+                    Avx2.Store (NativePtr.add accStartsPtr accIdx, newStartsPacked)
+                    Avx2.Store (NativePtr.add accBoundsPtr accIdx, newBoundsPacked)
+                    
+                    // Move the accIdx forward so that we write new matches to the correct spot
+                    accIdx <- accIdx + numberOfMatches
+                    if aBounds[aIdx] < bBounds[bIdx + Vector128<int>.Count - 1] then
                         aIdx <- aIdx + 1
                     else
-                        // Broadcast a values into a Vector256
-                        let aStartVec = Avx2.BroadcastScalarToVector256 (NativePtr.add aStartsPtr aIdx)
-                        let aBoundVec = Avx2.BroadcastScalarToVector256 (NativePtr.add aBoundsPtr aIdx)
-                        // Load the b values
-                        let bStartsVec = Avx2.LoadVector256 (NativePtr.add bStartsPtr bIdx)
-                        let bBoundsVec = Avx2.LoadVector256 (NativePtr.add bBoundsPtr bIdx)
-                        
-                        // Compute the possible Starts and Bounds
-                        let newStarts = Avx2.Max (aStartVec, bStartsVec)
-                        let newBounds = Avx2.Min (aBoundVec, bBoundsVec)
-                        // Check if the computed ranges make sense. Negative values are non-overlaps
-                        let boundsGreaterThanStarts = Avx2.CompareGreaterThan (newBounds, newStarts)
-                        
-                        // Move the farther behind series forward
-                        if aBounds[aIdx] < bBounds[bIdx + 7] then
-                            aIdx <- aIdx + 1
-                        else
-                            bIdx <- bIdx + Vector256<int>.Count
-                        
-            // Cleanup loop for end of the b series
-            while aIdx < a.Length && bIdx < b.Length do
-            
-                if bBounds[bIdx] <= aStarts[aIdx] then
-                    bIdx <- bIdx + 1
-                elif aBounds[aIdx] <= bStarts[bIdx] then
+                        bIdx <- bIdx + Vector128<int>.Count
+                
+            while aIdx < aStarts.Length && bIdx < bStarts.Length do
+                
+                if aBounds[aIdx] <= bStarts[bIdx] then
                     aIdx <- aIdx + 1
+                elif bBounds[bIdx] <= aStarts[aIdx] then
+                    bIdx <- bIdx + 1
                 else
-                    let newStart = Math.max (aStarts[aIdx], bStarts[bIdx])
-                    let newBound = Math.min (aBounds[aIdx], bBounds[bIdx])
-                    startsAcc[resultIdx] <- newStart
-                    boundsAcc[resultIdx] <- newBound
-                    resultIdx <- resultIdx + 1
-                        
-                    if aRange.Bound < bRange.Bound then
+                    accStarts[accIdx] <- Math.Max (aStarts[aIdx], bStarts[bIdx])
+                    accBounds[accIdx] <- Math.Min (aBounds[aIdx], bBounds[bIdx])
+                    if accStarts[accIdx] >= accBounds[accIdx] then
+                        failwith "Cannot have Start greater or equal to Bound"
+                    accIdx <- accIdx + 1
+                    
+                    if aBounds[aIdx] < bBounds[bIdx] then
                         aIdx <- aIdx + 1
                     else
                         bIdx <- bIdx + 1
                         
-            // Copy the final results
-            let resultStarts = GC.AllocateUninitializedArray resultIdx
-            let resultBounds = GC.AllocateUninitializedArray resultIdx
-            Array.Copy (startsAcc, resultStarts, resultIdx)
-            Array.Copy (boundsAcc, resultBounds, resultIdx)
-            // Return the rented array
-            ArrayPool.Shared.Return (startsAcc, false)
-            ArrayPool.Shared.Return (boundsAcc, false)
+            let resStarts = GC.AllocateUninitializedArray accIdx
+            let resBounds = GC.AllocateUninitializedArray accIdx
+            
+            // Copy out results    
+            Array.Copy (accStarts, resStarts, accIdx)
+            Array.Copy (accBounds, resBounds, accIdx)
+            
+            // Return acc arrays
+            ArrayPool.Shared.Return accStarts
+            ArrayPool.Shared.Return accBounds
+            
             {
-                Starts = resultStarts
-                Bounds = resultBounds
+                Starts = resStarts
+                Bounds = resBounds
             }
 
 
@@ -183,7 +249,8 @@ module ValueIndex =
             ranges
             |> Seq.map (fun (KeyValue (value, ranges)) ->
                 let rangeArray = ranges.ToArray()
-                KeyValuePair (value, rangeArray))
+                let newSeries = Series.ofRanges rangeArray
+                KeyValuePair (value, newSeries))
             |> Dictionary
         
         {
@@ -204,9 +271,8 @@ type SliceSetEnumerator<'T> =
     }
     member e.MoveNext () =
         if e.CurValueKey < 0<_> && e.CurKeyRangeIdx < e.KeyRanges.Length  then
-            let curRange = e.KeyRanges[e.CurKeyRangeIdx]
-            e.CurValueKey <- curRange.Start
-            e.CurValueKeyBound <- curRange.Bound
+            e.CurValueKey <- e.KeyRanges.Starts[e.CurKeyRangeIdx]
+            e.CurValueKeyBound <- e.KeyRanges.Bounds[e.CurKeyRangeIdx]
             e.CurValue <- e.Values[e.CurValueKey]
             true
         else
@@ -217,9 +283,8 @@ type SliceSetEnumerator<'T> =
             else
                 e.CurKeyRangeIdx <- e.CurKeyRangeIdx + 1
                 if e.CurKeyRangeIdx < e.KeyRanges.Length then
-                    let curRange = e.KeyRanges[e.CurKeyRangeIdx]
-                    e.CurValueKey <- curRange.Start
-                    e.CurValueKeyBound <- curRange.Bound
+                    e.CurValueKey <- e.KeyRanges.Starts[e.CurKeyRangeIdx]
+                    e.CurValueKeyBound <- e.KeyRanges.Bounds[e.CurKeyRangeIdx]
                     e.CurValue <- e.Values[e.CurValueKey]
                     true
                 else
