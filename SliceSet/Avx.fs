@@ -122,49 +122,55 @@ module Series =
                 
                 while aIdx < aStarts.Length && bIdx < lastBlockIdx do
 
-                    // Load the data into the SIMD registers
-                    let aStartVec = Vector128.Create aStarts[aIdx]
-                    let aBoundVec = Vector128.Create aBounds[aIdx]
-                    let bStartsVec = Avx2.LoadVector128 (NativePtr.add bStartsPtr bIdx)
-                    let bBoundsVec = Avx2.LoadVector128 (NativePtr.add bBoundsPtr bIdx)
-                    
-                    // Compute new Starts and Bounds
-                    let newStarts = Avx2.Max (aStartVec, bStartsVec)
-                    let newBounds = Avx2.Min (aBoundVec, bBoundsVec)
-                    
-                    // Perform comparison to check for valid intervals
-                    let nonNegativeCheck = Avx2.CompareGreaterThan (newBounds, newStarts)
-                    
-                    // Retype so we can use MoveMask
-                    let nonNegativeCheckAsFloat32 : Vector128<float32> = Helpers.retype nonNegativeCheck
-                    
-                    // Compute the MoveMask to lookup Left-Compacting shuffle mask
-                    let moveMask = Avx2.MoveMask nonNegativeCheckAsFloat32
-                    // Lookup the Left-Compacting shuffle mask we will need
-                    let shuffleMask = Helpers.leftCompactShuffleMasks[moveMask]
-                    
-                    // Retype moveMask to use it with PopCount to get number of matches
-                    let moveMask : uint32 = Helpers.retype moveMask
-                    let numberOfMatches = BitOperations.PopCount moveMask
-                    
-                    // Retype newStarts and newBounds for shuffling
-                    let newStartsAsBytes : Vector128<byte> = Helpers.retype newStarts
-                    let newBoundsAsBytes : Vector128<byte> = Helpers.retype newBounds
-                    
-                    // Shuffle the values that we want to keep
-                    let newStartsPacked : Vector128<int> = Helpers.retype (Avx2.Shuffle (newStartsAsBytes, shuffleMask))
-                    let newBoundsPacked : Vector128<int> = Helpers.retype (Avx2.Shuffle (newBoundsAsBytes, shuffleMask))
-                    
-                    // Write the values out to the acc arrays
-                    Avx2.Store (NativePtr.add accStartsPtr accIdx, newStartsPacked)
-                    Avx2.Store (NativePtr.add accBoundsPtr accIdx, newBoundsPacked)
-                    
-                    // Move the accIdx forward so that we write new matches to the correct spot
-                    accIdx <- accIdx + numberOfMatches
-                    if aBounds[aIdx] < bBounds[bIdx + Vector128<int>.Count - 1] then
+                    if aBounds[aIdx] <= bStarts[bIdx] then
                         aIdx <- aIdx + 1
-                    else
+                    elif bBounds[bIdx + Vector128<int>.Count - 1] <= aStarts[aIdx] then
                         bIdx <- bIdx + Vector128<int>.Count
+                    else
+                        
+                        // Load the data into the SIMD registers
+                        let aStartVec = Vector128.Create aStarts[aIdx]
+                        let aBoundVec = Vector128.Create aBounds[aIdx]
+                        let bStartsVec = Avx2.LoadVector128 (NativePtr.add bStartsPtr bIdx)
+                        let bBoundsVec = Avx2.LoadVector128 (NativePtr.add bBoundsPtr bIdx)
+                        
+                        // Compute new Starts and Bounds
+                        let newStarts = Avx2.Max (aStartVec, bStartsVec)
+                        let newBounds = Avx2.Min (aBoundVec, bBoundsVec)
+                        
+                        // Perform comparison to check for valid intervals
+                        let nonNegativeCheck = Avx2.CompareGreaterThan (newBounds, newStarts)
+                        
+                        // Retype so we can use MoveMask
+                        let nonNegativeCheckAsFloat32 : Vector128<float32> = Helpers.retype nonNegativeCheck
+                        
+                        // Compute the MoveMask to lookup Left-Compacting shuffle mask
+                        let moveMask = Avx2.MoveMask nonNegativeCheckAsFloat32
+                        // Lookup the Left-Compacting shuffle mask we will need
+                        let shuffleMask = Helpers.leftCompactShuffleMasks[moveMask]
+                        
+                        // Retype moveMask to use it with PopCount to get number of matches
+                        let moveMask : uint32 = Helpers.retype moveMask
+                        let numberOfMatches = BitOperations.PopCount moveMask
+                        
+                        // Retype newStarts and newBounds for shuffling
+                        let newStartsAsBytes : Vector128<byte> = Helpers.retype newStarts
+                        let newBoundsAsBytes : Vector128<byte> = Helpers.retype newBounds
+                        
+                        // Shuffle the values that we want to keep
+                        let newStartsPacked : Vector128<int> = Helpers.retype (Avx2.Shuffle (newStartsAsBytes, shuffleMask))
+                        let newBoundsPacked : Vector128<int> = Helpers.retype (Avx2.Shuffle (newBoundsAsBytes, shuffleMask))
+                        
+                        // Write the values out to the acc arrays
+                        Avx2.Store (NativePtr.add accStartsPtr accIdx, newStartsPacked)
+                        Avx2.Store (NativePtr.add accBoundsPtr accIdx, newBoundsPacked)
+                        
+                        // Move the accIdx forward so that we write new matches to the correct spot
+                        accIdx <- accIdx + numberOfMatches
+                        if aBounds[aIdx] < bBounds[bIdx + Vector128<int>.Count - 1] then
+                            aIdx <- aIdx + 1
+                        else
+                            bIdx <- bIdx + Vector128<int>.Count
                 
             while aIdx < aStarts.Length && bIdx < bStarts.Length do
                 
